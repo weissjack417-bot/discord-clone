@@ -1,156 +1,185 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
+  <title>Discord Clone</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body { margin:0; font-family:sans-serif; background:#2b2d31; color:white; display:flex; height:100vh; }
-    .sidebar { width:250px; background:#1e1f22; padding:10px; display:flex; flex-direction:column; }
-    .channel { padding:8px; cursor:pointer; border-radius:5px; }
-    .channel:hover { background:#383a40; }
-    .main { flex:1; display:flex; flex-direction:column; }
-    .messages { flex:1; padding:10px; overflow-y:auto; }
-    .message { margin-bottom:5px; }
-    .input { display:flex; padding:10px; background:#383a40; }
-    input { padding:10px; border:none; border-radius:5px; margin-right:5px; }
-    button { padding:10px; border:none; border-radius:5px; cursor:pointer; }
-    .auth { position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); display:flex; flex-direction:column; width:250px; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #36393f;
+      color: white;
+    }
+
+    #auth {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      gap: 10px;
+    }
+
+    input {
+      padding: 10px;
+      width: 250px;
+      border-radius: 5px;
+      border: none;
+    }
+
+    button {
+      padding: 10px;
+      width: 270px;
+      border-radius: 5px;
+      border: none;
+      background: #5865f2;
+      color: white;
+      cursor: pointer;
+    }
+
+    #app {
+      display: none;
+      height: 100vh;
+    }
+
+    #sidebar {
+      width: 250px;
+      background: #2f3136;
+      padding: 10px;
+    }
+
+    #chat {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #messages {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+    }
+
+    #messageInput {
+      display: flex;
+    }
+
+    #messageInput input {
+      flex: 1;
+      padding: 10px;
+      border: none;
+    }
+
+    #messageInput button {
+      width: 100px;
+    }
+
+    .message {
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
 
-<div id="auth" class="auth">
-  <input id="email" placeholder="Email">
+<div id="auth">
+  <h2>Login / Sign Up</h2>
+  <input id="email" type="email" placeholder="Email">
   <input id="password" type="password" placeholder="Password">
   <button onclick="signUp()">Sign Up</button>
   <button onclick="login()">Login</button>
 </div>
 
-<div class="sidebar" id="sidebar" style="display:none;">
-  <h3>Channels</h3>
-  <div id="channelList"></div>
-  <input id="newChannelName" placeholder="New channel name">
-  <button onclick="createChannel()">Create</button>
-  <button onclick="logout()">Logout</button>
-</div>
+<div id="app">
+  <div id="sidebar">
+    <h3>DM</h3>
+    <button onclick="logout()">Logout</button>
+  </div>
 
-<div class="main" id="main" style="display:none;">
-  <div class="messages" id="messages"></div>
-  <div class="input">
-    <input id="messageInput" placeholder="Type a message">
-    <button onclick="sendMessage()">Send</button>
+  <div id="chat">
+    <div id="messages"></div>
+    <div id="messageInput">
+      <input id="messageText" placeholder="Type a message...">
+      <button onclick="sendMessage()">Send</button>
+    </div>
   </div>
 </div>
 
 <script>
-const supabase = window.supabase.createClient(
-  "https://mcofbchorvsseikgccek.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
-)
+  const supabase = window.supabase.createClient(
+    "https://mcofbchorvsseikgccek.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
+  )
 
-let currentUser = null
-let currentChannel = null
-let subscription = null
+  async function signUp() {
+    const email = document.getElementById("email").value
+    const password = document.getElementById("password").value
 
-async function signUp() {
-  const email = emailInput.value
-  const password = passwordInput.value
-  await supabase.auth.signUp({ email, password })
-  alert("Account created. Now login.")
-}
+    const { error } = await supabase.auth.signUp({
+      email,
+      password
+    })
 
-async function login() {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: emailInput.value,
-    password: passwordInput.value
-  })
-  if (error) return alert(error.message)
-  currentUser = data.user
-  loadApp()
-}
-
-async function logout() {
-  await supabase.auth.signOut()
-  location.reload()
-}
-
-function loadApp() {
-  auth.style.display = "none"
-  sidebar.style.display = "flex"
-  main.style.display = "flex"
-  loadChannels()
-}
-
-async function loadChannels() {
-  const { data } = await supabase.from("conversations").select("*").eq("type","channel")
-  channelList.innerHTML = ""
-  data.forEach(channel => {
-    const div = document.createElement("div")
-    div.className = "channel"
-    div.innerText = "# " + channel.name
-    div.onclick = () => openChannel(channel.id)
-    channelList.appendChild(div)
-  })
-}
-
-async function createChannel() {
-  if (!newChannelName.value) return
-  await supabase.from("conversations").insert([{ type:"channel", name:newChannelName.value }])
-  newChannelName.value = ""
-  loadChannels()
-}
-
-async function openChannel(id) {
-  currentChannel = id
-  loadMessages()
-
-  if (subscription) subscription.unsubscribe()
-
-  subscription = supabase
-    .channel("realtime")
-    .on("postgres_changes",
-      { event:"INSERT", schema:"public", table:"messages", filter:`conversation_id=eq.${id}` },
-      payload => {
-        addMessage(payload.new)
-      }
-    )
-    .subscribe()
-}
-
-async function loadMessages() {
-  const { data } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("conversation_id", currentChannel)
-    .order("created_at",{ascending:true})
-
-  messages.innerHTML = ""
-  data.forEach(addMessage)
-}
-
-function addMessage(msg) {
-  const div = document.createElement("div")
-  div.className = "message"
-  div.innerHTML = `<b>${msg.sender_id.substring(0,6)}</b>: ${msg.content}`
-  messages.appendChild(div)
-  messages.scrollTop = messages.scrollHeight
-}
-
-async function sendMessage() {
-  if (!messageInput.value || !currentChannel) return
-  await supabase.from("messages").insert([{
-    conversation_id: currentChannel,
-    sender_id: currentUser.id,
-    content: messageInput.value
-  }])
-  messageInput.value = ""
-}
-
-supabase.auth.getUser().then(({data})=>{
-  if(data.user){
-    currentUser=data.user
-    loadApp()
+    if (error) {
+      alert(error.message)
+    } else {
+      alert("Check your email to confirm sign up.")
+    }
   }
-})
+
+  async function login() {
+    const email = document.getElementById("email").value
+    const password = document.getElementById("password").value
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    })
+
+    if (error) {
+      alert(error.message)
+    } else {
+      document.getElementById("auth").style.display = "none"
+      document.getElementById("app").style.display = "flex"
+      loadMessages()
+    }
+  }
+
+  async function logout() {
+    await supabase.auth.signOut()
+    location.reload()
+  }
+
+  async function sendMessage() {
+    const text = document.getElementById("messageText").value
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!text) return
+
+    await supabase.from("messages").insert([
+      { content: text, user_id: user.id }
+    ])
+
+    document.getElementById("messageText").value = ""
+    loadMessages()
+  }
+
+  async function loadMessages() {
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .order("created_at", { ascending: true })
+
+    const messagesDiv = document.getElementById("messages")
+    messagesDiv.innerHTML = ""
+
+    data.forEach(msg => {
+      const div = document.createElement("div")
+      div.className = "message"
+      div.textContent = msg.content
+      messagesDiv.appendChild(div)
+    })
+  }
 </script>
 
 </body>
