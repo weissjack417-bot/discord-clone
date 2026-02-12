@@ -14,15 +14,14 @@ const supabase = createClient(
 
 let currentUser = null
 let activeTab = "friends"
-let messageSubscription = null
 
 // ---------------- AUTH ----------------
 
 window.login = async () => {
-  const email = emailInput.value.trim()
-  const password = passwordInput.value.trim()
-
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: emailInput.value.trim(),
+    password: passwordInput.value.trim()
+  })
   if (error) return alert(error.message)
 
   currentUser = data.user
@@ -38,23 +37,17 @@ window.signup = async () => {
 
   const { data, error } = await supabase.auth.signUp({ email, password })
   if (error) return alert(error.message)
-  if (!data.user) return alert("Signup failed")
 
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .upsert({
-      id: data.user.id,
-      email: email,
-      username: username
-    })
+  await supabase.from("profiles").upsert({
+    id: data.user.id,
+    email,
+    username
+  })
 
-  if (profileError) return alert(profileError.message)
-
-  alert("Account created. You can now log in.")
+  alert("Account created.")
 }
 
 window.logout = async () => {
-  if (messageSubscription) supabase.removeChannel(messageSubscription)
   await supabase.auth.signOut()
   location.reload()
 }
@@ -88,7 +81,6 @@ window.switchTab = (tab) => {
 }
 
 async function loadTab() {
-  if (!currentUser) return
   if (activeTab === "friends") loadFriends()
   if (activeTab === "requests") loadRequests()
   if (activeTab === "dms") loadDMList()
@@ -99,13 +91,13 @@ async function loadTab() {
 async function loadFriends() {
   content.innerHTML = "Loading..."
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("friends")
     .select("*")
     .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
     .eq("status", "accepted")
 
-  if (error || !data || data.length === 0) {
+  if (!data?.length) {
     content.innerHTML = "<p>No friends yet.</p>"
     return
   }
@@ -141,7 +133,7 @@ async function loadRequests() {
     .eq("addressee_id", currentUser.id)
     .eq("status", "pending")
 
-  if (!data || data.length === 0) {
+  if (!data?.length) {
     content.innerHTML = "<p>No pending requests.</p>"
     return
   }
@@ -181,7 +173,6 @@ window.addFriend = async () => {
     .single()
 
   if (!profile) return alert("User not found")
-  if (profile.id === currentUser.id) return alert("You can't add yourself")
 
   await supabase.from("friends").insert({
     requester_id: currentUser.id,
@@ -192,17 +183,17 @@ window.addFriend = async () => {
   alert("Friend request sent.")
 }
 
-// ---------------- DMs ----------------
+// ---------------- DMs LIST ----------------
 
 async function loadDMList() {
-  content.innerHTML = "Loading conversations..."
+  content.innerHTML = "Loading..."
 
   const { data } = await supabase
     .from("conversation_participants")
     .select("conversation_id")
     .eq("user_id", currentUser.id)
 
-  if (!data || data.length === 0) {
+  if (!data?.length) {
     content.innerHTML = "<p>No conversations yet.</p>"
     return
   }
@@ -211,30 +202,31 @@ async function loadDMList() {
 
   for (let c of data) {
 
-    if (!c.conversation_id) continue   // 🚨 skip broken rows
-
     const { data: participants } = await supabase
       .from("conversation_participants")
       .select("user_id")
       .eq("conversation_id", c.conversation_id)
 
-    if (!participants) continue
+    const names = []
 
-    const other = participants.find(p => p.user_id !== currentUser.id)
-    if (!other) continue
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", other.user_id)
-      .single()
+    for (let p of participants || []) {
+      if (p.user_id === currentUser.id) continue
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", p.user_id)
+        .single()
+      if (profile?.username) names.push(profile.username)
+    }
 
     content.innerHTML += `
       <div class="card" onclick="openDM('${c.conversation_id}')">
-        ${profile?.username || "Unknown"}
+        ${names.join(", ") || "Conversation"}
       </div>`
   }
 }
+
+// ---------------- START DM ----------------
 
 window.startDM = async (friendId) => {
 
@@ -243,20 +235,14 @@ window.startDM = async (friendId) => {
     .select("conversation_id")
     .eq("user_id", currentUser.id)
 
-  if (!existing) return
-
-  for (let convo of existing) {
-
-    if (!convo.conversation_id) continue
+  for (let convo of existing || []) {
 
     const { data: participants } = await supabase
       .from("conversation_participants")
       .select("user_id")
       .eq("conversation_id", convo.conversation_id)
 
-    if (!participants) continue
-
-    if (participants.find(p => p.user_id === friendId)) {
+    if (participants?.find(p => p.user_id === friendId)) {
       switchTab("dms")
       openDM(convo.conversation_id)
       return
@@ -269,8 +255,6 @@ window.startDM = async (friendId) => {
     .select()
     .single()
 
-  if (!newConvo) return alert("Could not create conversation.")
-
   await supabase.from("conversation_participants").insert([
     { conversation_id: newConvo.id, user_id: currentUser.id },
     { conversation_id: newConvo.id, user_id: friendId }
@@ -280,26 +264,50 @@ window.startDM = async (friendId) => {
   openDM(newConvo.id)
 }
 
+// ---------------- OPEN DM ----------------
+
 window.openDM = async (conversationId) => {
 
-  if (!conversationId) return
-
-  if (messageSubscription) supabase.removeChannel(messageSubscription)
-
   content.innerHTML = `
-    <div id="messages" style="height:300px; overflow-y:auto;"></div>
-    <div style="margin-top:10px;">
-      <input id="messageInput" placeholder="Type message..." style="width:70%;">
-      <button onclick="sendMessage('${conversationId}')">Send</button>
+    <div class="chatContainer">
+      <div id="messages" class="messages"></div>
+
+      <div class="chatBottom">
+        <button onclick="addToConversation('${conversationId}')">+</button>
+        <input id="messageInput" placeholder="Type message...">
+        <button onclick="sendMessage('${conversationId}')">Send</button>
+      </div>
     </div>
   `
 
   loadMessages(conversationId)
 }
 
-async function loadMessages(conversationId) {
+// ---------------- ADD USER TO GROUP ----------------
 
-  if (!conversationId) return
+window.addToConversation = async (conversationId) => {
+  const username = prompt("Enter username to add:")
+  if (!username) return
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("username", username)
+    .single()
+
+  if (!profile) return alert("User not found")
+
+  await supabase.from("conversation_participants").insert({
+    conversation_id: conversationId,
+    user_id: profile.id
+  })
+
+  alert("User added to conversation.")
+}
+
+// ---------------- LOAD MESSAGES ----------------
+
+async function loadMessages(conversationId) {
 
   const { data } = await supabase
     .from("messages")
@@ -308,8 +316,6 @@ async function loadMessages(conversationId) {
     .order("created_at", { ascending: true })
 
   const messagesDiv = document.getElementById("messages")
-  if (!messagesDiv) return
-
   messagesDiv.innerHTML = ""
 
   for (let m of data || []) {
@@ -329,7 +335,7 @@ async function loadMessages(conversationId) {
 
 window.sendMessage = async (conversationId) => {
   const input = document.getElementById("messageInput")
-  if (!input || !input.value.trim()) return
+  if (!input.value.trim()) return
 
   await supabase.from("messages").insert({
     conversation_id: conversationId,
@@ -346,16 +352,41 @@ checkSession()
 
 <style>
 body { margin:0; font-family:Arial; background:#313338; color:white; }
-button { background:#5865F2; border:none; padding:8px 12px; border-radius:5px; color:white; cursor:pointer; margin-top:5px; }
+button { background:#5865F2; border:none; padding:8px 12px; border-radius:5px; color:white; cursor:pointer; }
 button:hover { opacity:0.85 }
+
 #loginScreen { display:none; height:100vh; justify-content:center; align-items:center; }
 .loginBox { background:#1e1f22; padding:30px; border-radius:8px; display:flex; flex-direction:column; gap:10px; width:300px; }
 input { padding:8px; border-radius:4px; border:none; }
+
 #appScreen { display:none; height:100vh; }
 .sidebar { width:220px; background:#1e1f22; padding:15px; }
 .sidebar button { width:100%; margin-bottom:10px; }
-.main { flex:1; padding:20px; }
+
+.main { flex:1; padding:20px; display:flex; }
+
 .card { background:#2b2d31; padding:10px; border-radius:6px; margin-bottom:10px; cursor:pointer; }
+
+.chatContainer {
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  width:100%;
+}
+
+.messages {
+  flex:1;
+  overflow-y:auto;
+  margin-bottom:10px;
+}
+
+.chatBottom {
+  display:flex;
+  gap:10px;
+}
+.chatBottom input {
+  flex:1;
+}
 </style>
 </head>
 
@@ -381,7 +412,7 @@ input { padding:8px; border-radius:4px; border:none; }
     <button onclick="logout()">Logout</button>
   </div>
   <div class="main">
-    <div id="content"></div>
+    <div id="content" style="width:100%;"></div>
   </div>
 </div>
 
