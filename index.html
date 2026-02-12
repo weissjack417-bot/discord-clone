@@ -53,7 +53,7 @@ window.signup = async () => {
     username
   })
 
-  alert("Account created. You can login now.")
+  alert("Account created.")
 }
 
 window.logout = async () => {
@@ -73,11 +73,11 @@ function showApp() {
   loadConversations()
 }
 
-// ---------------- LOAD DMs ----------------
+// ---------------- LOAD SIDEBAR DMs ----------------
 
 async function loadConversations() {
 
-  content.innerHTML = "Loading..."
+  dmList.innerHTML = ""
 
   const { data } = await supabase
     .from("conversation_participants")
@@ -85,11 +85,9 @@ async function loadConversations() {
     .eq("user_id", currentUser.id)
 
   if (!data?.length) {
-    content.innerHTML = "<p>No conversations yet.</p>"
+    dmList.innerHTML = "<p style='padding:10px;'>No DMs</p>"
     return
   }
-
-  content.innerHTML = ""
 
   for (let convo of data) {
 
@@ -113,10 +111,10 @@ async function loadConversations() {
     }
 
     const div = document.createElement("div")
-    div.className = "card"
+    div.className = "dmItem"
     div.textContent = names.join(", ") || "Conversation"
     div.onclick = () => openDM(convo.conversation_id)
-    content.appendChild(div)
+    dmList.appendChild(div)
   }
 }
 
@@ -126,7 +124,7 @@ async function openDM(conversationId) {
 
   currentConversationId = conversationId
 
-  content.innerHTML = `
+  chatArea.innerHTML = `
     <div class="chatContainer">
       <div id="messages" class="messages"></div>
       <div class="chatBottom">
@@ -186,15 +184,14 @@ async function appendMessage(message, scroll = true) {
     .single()
 
   const div = document.createElement("div")
+  div.className = "message"
   div.innerHTML = `<strong>${profile?.username || "Unknown"}:</strong> ${message.content}`
   messagesDiv.appendChild(div)
 
-  if (scroll) {
-    messagesDiv.scrollTop = messagesDiv.scrollHeight
-  }
+  if (scroll) messagesDiv.scrollTop = messagesDiv.scrollHeight
 }
 
-// ---------------- SEND MESSAGE ----------------
+// ---------------- SEND ----------------
 
 async function sendMessage() {
 
@@ -216,7 +213,7 @@ async function sendMessage() {
 
   if (error) {
     console.error(error)
-    alert("Failed to send message.")
+    alert("Failed to send.")
     return
   }
 
@@ -243,9 +240,7 @@ function subscribeToMessages() {
         filter: `conversation_id=eq.${currentConversationId}`
       },
       (payload) => {
-
         if (payload.new.sender_id === currentUser.id) return
-
         appendMessage(payload.new)
       }
     )
@@ -257,26 +252,63 @@ checkSession()
 
 <style>
 body { margin:0; font-family:Arial; background:#313338; color:white; }
-button { background:#5865F2; border:none; padding:8px 12px; border-radius:5px; color:white; cursor:pointer; }
-button:hover { opacity:0.85 }
 
 #loginScreen { display:none; height:100vh; justify-content:center; align-items:center; }
 .loginBox { background:#1e1f22; padding:30px; border-radius:8px; display:flex; flex-direction:column; gap:10px; width:300px; }
+
 input { padding:8px; border-radius:4px; border:none; }
 
-#appScreen { display:none; height:100vh; }
-.sidebar { width:220px; background:#1e1f22; padding:15px; }
-.sidebar button { width:100%; margin-bottom:10px; }
+button {
+  background:#5865F2;
+  border:none;
+  padding:8px 12px;
+  border-radius:5px;
+  color:white;
+  cursor:pointer;
+}
 
-.main { flex:1; padding:20px; display:flex; }
+button:hover { opacity:0.85 }
 
-.card { background:#2b2d31; padding:10px; border-radius:6px; margin-bottom:10px; cursor:pointer; }
+#appScreen { display:none; height:100vh; display:flex; }
+
+.sidebar {
+  width:240px;
+  background:#1e1f22;
+  display:flex;
+  flex-direction:column;
+}
+
+.sidebarHeader {
+  padding:15px;
+  font-weight:bold;
+  border-bottom:1px solid #2b2d31;
+}
+
+.dmList {
+  flex:1;
+  overflow-y:auto;
+}
+
+.dmItem {
+  padding:12px;
+  cursor:pointer;
+}
+
+.dmItem:hover {
+  background:#2b2d31;
+}
+
+.chatArea {
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  padding:15px;
+}
 
 .chatContainer {
   display:flex;
   flex-direction:column;
   height:100%;
-  width:100%;
 }
 
 .messages {
@@ -285,10 +317,15 @@ input { padding:8px; border-radius:4px; border:none; }
   margin-bottom:10px;
 }
 
+.message {
+  margin-bottom:6px;
+}
+
 .chatBottom {
   display:flex;
   gap:10px;
 }
+
 .chatBottom input {
   flex:1;
 }
@@ -308,11 +345,18 @@ input { padding:8px; border-radius:4px; border:none; }
   </div>
 </div>
 
-<div id="appScreen" style="display:flex;">
-  <div class="main">
-    <div id="content" style="width:100%;"></div>
+<div id="appScreen">
+
+  <div class="sidebar">
+    <div class="sidebarHeader">Direct Messages</div>
+    <div id="dmList" class="dmList"></div>
+    <button style="margin:10px;" onclick="logout()">Logout</button>
   </div>
-  <button style="position:absolute; top:10px; right:10px;" onclick="logout()">Logout</button>
+
+  <div id="chatArea" class="chatArea">
+    <h3>Select a DM</h3>
+  </div>
+
 </div>
 
 </body>
