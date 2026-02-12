@@ -1,349 +1,282 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Chat App</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial;
-      display: flex;
-      height: 100vh;
-      background: #1e1f22;
-      color: white;
-    }
+<meta charset="UTF-8">
+<title>Chat App</title>
 
-    #sidebar {
-      width: 280px;
-      background: #2b2d31;
-      padding: 15px;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-      overflow-y: auto;
-    }
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"
 
-    h3 {
-      margin: 10px 0 5px 0;
-      font-size: 14px;
-      color: #aaa;
-    }
+const supabase = createClient(
+  "https://mcofbchorvsseikgccek.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
+)
 
-    .list-item {
-      padding: 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      background: #383a40;
-      margin-bottom: 5px;
-    }
+let currentUser = null
+let activeTab = "friends"
+let messageChannel = null
+let currentConversationId = null
 
-    .list-item:hover {
-      background: #4e5058;
-    }
+// ---------------- AUTH ----------------
 
-    button {
-      padding: 6px 10px;
-      margin-top: 5px;
-      cursor: pointer;
-    }
+window.login = async () => {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: emailInput.value.trim(),
+    password: passwordInput.value.trim()
+  })
+  if (error) return alert(error.message)
+  currentUser = data.user
+  showApp()
+}
 
-    #main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
+window.signup = async () => {
+  const email = emailInput.value.trim()
+  const password = passwordInput.value.trim()
+  const username = usernameInput.value.trim()
+  if (!username) return alert("Username required")
 
-    #chatHeader {
-      padding: 15px;
-      background: #313338;
-      border-bottom: 1px solid #444;
-    }
+  const { data, error } = await supabase.auth.signUp({ email, password })
+  if (error) return alert(error.message)
 
-    #messages {
-      flex: 1;
-      padding: 20px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+  await supabase.from("profiles").upsert({
+    id: data.user.id,
+    email,
+    username
+  })
 
-    .message {
-      background: #383a40;
-      padding: 8px 12px;
-      border-radius: 8px;
-      max-width: 60%;
-    }
+  alert("Account created.")
+}
 
-    #inputArea {
-      padding: 15px;
-      background: #2b2d31;
-      display: flex;
-      gap: 10px;
-    }
+window.logout = async () => {
+  if (messageChannel) supabase.removeChannel(messageChannel)
+  await supabase.auth.signOut()
+  location.reload()
+}
 
-    #messageInput {
-      flex: 1;
-      padding: 10px;
+async function checkSession() {
+  const { data } = await supabase.auth.getSession()
+  if (data?.session) {
+    currentUser = data.session.user
+    showApp()
+  } else {
+    showLogin()
+  }
+}
+
+function showLogin() {
+  loginScreen.style.display = "flex"
+  appScreen.style.display = "none"
+}
+
+function showApp() {
+  loginScreen.style.display = "none"
+  appScreen.style.display = "flex"
+}
+
+// ---------------- DMs ----------------
+
+window.openDM = async (conversationId) => {
+
+  currentConversationId = conversationId
+
+  content.innerHTML = `
+    <div class="chatContainer">
+      <div id="messages" class="messages"></div>
+      <div class="chatBottom">
+        <input id="messageInput" placeholder="Type message...">
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+  `
+
+  setupEnterKey()
+  await loadMessages()
+  subscribeToMessages()
+}
+
+// ---------------- ENTER SEND ----------------
+
+function setupEnterKey() {
+  const input = document.getElementById("messageInput")
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      sendMessage()
     }
-  </style>
+  })
+}
+
+// ---------------- REALTIME ----------------
+
+function subscribeToMessages() {
+
+  if (messageChannel) {
+    supabase.removeChannel(messageChannel)
+  }
+
+  messageChannel = supabase
+    .channel("messages-" + currentConversationId)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+        filter: `conversation_id=eq.${currentConversationId}`
+      },
+      (payload) => {
+        appendMessage(payload.new)
+      }
+    )
+    .subscribe()
+}
+
+// ---------------- LOAD ----------------
+
+async function loadMessages() {
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", currentConversationId)
+    .order("created_at", { ascending: true })
+
+  if (error) {
+    console.error("Load messages error:", error)
+    return
+  }
+
+  const messagesDiv = document.getElementById("messages")
+  messagesDiv.innerHTML = ""
+
+  for (let m of data || []) {
+    await appendMessage(m, false)
+  }
+
+  messagesDiv.scrollTop = messagesDiv.scrollHeight
+}
+
+// ---------------- APPEND ----------------
+
+async function appendMessage(message, scroll = true) {
+
+  const messagesDiv = document.getElementById("messages")
+  if (!messagesDiv) return
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", message.sender_id)
+    .single()
+
+  const div = document.createElement("div")
+  div.innerHTML = `<strong>${profile?.username || "Unknown"}:</strong> ${message.content}`
+  messagesDiv.appendChild(div)
+
+  if (scroll) {
+    messagesDiv.scrollTop = messagesDiv.scrollHeight
+  }
+}
+
+// ---------------- SEND (FIXED) ----------------
+
+window.sendMessage = async () => {
+
+  if (!currentConversationId) {
+    console.error("No conversation selected")
+    return
+  }
+
+  const input = document.getElementById("messageInput")
+  const text = input.value.trim()
+  if (!text) return
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: currentConversationId,
+      sender_id: currentUser.id,
+      content: text
+    })
+    .select()
+
+  if (error) {
+    console.error("Message insert failed:", error)
+    alert("Message failed to send. Check console.")
+    return
+  }
+
+  input.value = ""
+
+  // Optional immediate append (so it feels instant)
+  if (data && data.length > 0) {
+    appendMessage(data[0])
+  }
+}
+
+checkSession()
+</script>
+
+<style>
+body { margin:0; font-family:Arial; background:#313338; color:white; }
+button { background:#5865F2; border:none; padding:8px 12px; border-radius:5px; color:white; cursor:pointer; }
+button:hover { opacity:0.85 }
+
+#loginScreen { display:none; height:100vh; justify-content:center; align-items:center; }
+.loginBox { background:#1e1f22; padding:30px; border-radius:8px; display:flex; flex-direction:column; gap:10px; width:300px; }
+input { padding:8px; border-radius:4px; border:none; }
+
+#appScreen { display:none; height:100vh; }
+.sidebar { width:220px; background:#1e1f22; padding:15px; }
+.sidebar button { width:100%; margin-bottom:10px; }
+
+.main { flex:1; padding:20px; display:flex; }
+
+.chatContainer {
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  width:100%;
+}
+
+.messages {
+  flex:1;
+  overflow-y:auto;
+  margin-bottom:10px;
+}
+
+.chatBottom {
+  display:flex;
+  gap:10px;
+}
+.chatBottom input {
+  flex:1;
+}
+</style>
 </head>
+
 <body>
 
-<div id="sidebar">
-  <h3>Friends</h3>
-  <div id="friendsList"></div>
-
-  <h3>Requests</h3>
-  <div id="requestsList"></div>
-
-  <h3>Direct Messages</h3>
-  <button onclick="createGroupDM()">+ New DM</button>
-  <div id="dmList"></div>
-
-  <button onclick="logout()">Logout</button>
-</div>
-
-<div id="main">
-  <div id="chatHeader">Select a conversation</div>
-  <div id="messages"></div>
-  <div id="inputArea">
-    <input id="messageInput" placeholder="Type a message..." />
-    <button onclick="sendMessage()">Send</button>
+<div id="loginScreen">
+  <div class="loginBox">
+    <h2>Login / Sign Up</h2>
+    <input id="emailInput" placeholder="Email">
+    <input id="passwordInput" type="password" placeholder="Password">
+    <input id="usernameInput" placeholder="Username (signup only)">
+    <button onclick="login()">Login</button>
+    <button onclick="signup()">Sign Up</button>
   </div>
 </div>
 
-<script>
-const supabase = supabase.createClient(
-  "https://mcofbchorvsseikgccek.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
-);
-
-let currentUser = null;
-let currentConversation = null;
-let realtimeChannel = null;
-
-init();
-
-async function init() {
-  const { data } = await supabase.auth.getUser();
-  currentUser = data.user;
-  if (!currentUser) return;
-
-  loadFriends();
-  loadRequests();
-  loadDMs();
-}
-
-async function loadFriends() {
-  const { data } = await supabase
-    .from("friends")
-    .select("*, profiles:profiles!friends_addressee_id_fkey(username)")
-    .eq("requester_id", currentUser.id)
-    .eq("status", "accepted");
-
-  const list = document.getElementById("friendsList");
-  list.innerHTML = "";
-
-  data?.forEach(friend => {
-    const div = document.createElement("div");
-    div.className = "list-item";
-    div.innerText = friend.profiles.username;
-    div.onclick = () => startDM(friend.addressee_id);
-    list.appendChild(div);
-  });
-}
-
-async function loadRequests() {
-  const { data } = await supabase
-    .from("friends")
-    .select("*, profiles:profiles!friends_requester_id_fkey(username)")
-    .eq("addressee_id", currentUser.id)
-    .eq("status", "pending");
-
-  const list = document.getElementById("requestsList");
-  list.innerHTML = "";
-
-  data?.forEach(req => {
-    const div = document.createElement("div");
-    div.className = "list-item";
-    div.innerHTML = `
-      ${req.profiles.username}
-      <button onclick="acceptRequest('${req.id}')">Accept</button>
-    `;
-    list.appendChild(div);
-  });
-}
-
-async function acceptRequest(id) {
-  await supabase.from("friends")
-    .update({ status: "accepted" })
-    .eq("id", id);
-  loadFriends();
-  loadRequests();
-}
-
-async function startDM(userId) {
-  let { data: existing } = await supabase
-    .from("conversation_participants")
-    .select("conversation_id")
-    .eq("user_id", currentUser.id);
-
-  if (!existing) return;
-
-  let conversationId = null;
-
-  for (let convo of existing) {
-    let { data: participants } = await supabase
-      .from("conversation_participants")
-      .select("user_id")
-      .eq("conversation_id", convo.conversation_id);
-
-    if (!participants) continue;
-
-    const ids = participants.map(p => p.user_id);
-    if (ids.length === 2 && ids.includes(userId)) {
-      conversationId = convo.conversation_id;
-      break;
-    }
-  }
-
-  if (!conversationId) {
-    const { data: newConvo } = await supabase
-      .from("conversations")
-      .insert({})
-      .select()
-      .single();
-
-    conversationId = newConvo.id;
-
-    await supabase.from("conversation_participants").insert([
-      { conversation_id: conversationId, user_id: currentUser.id },
-      { conversation_id: conversationId, user_id: userId }
-    ]);
-  }
-
-  openConversation(conversationId);
-}
-
-async function createGroupDM() {
-  const usernames = prompt("Enter usernames separated by commas:");
-  if (!usernames) return;
-
-  const names = usernames.split(",").map(n => n.trim());
-
-  const { data: users } = await supabase
-    .from("profiles")
-    .select("id")
-    .in("username", names);
-
-  if (!users) return;
-
-  const { data: convo } = await supabase
-    .from("conversations")
-    .insert({})
-    .select()
-    .single();
-
-  const participants = users.map(u => ({
-    conversation_id: convo.id,
-    user_id: u.id
-  }));
-
-  participants.push({
-    conversation_id: convo.id,
-    user_id: currentUser.id
-  });
-
-  await supabase.from("conversation_participants").insert(participants);
-
-  loadDMs();
-}
-
-async function loadDMs() {
-  const { data } = await supabase
-    .from("conversation_participants")
-    .select("conversation_id")
-    .eq("user_id", currentUser.id);
-
-  const list = document.getElementById("dmList");
-  list.innerHTML = "";
-
-  data?.forEach(convo => {
-    const div = document.createElement("div");
-    div.className = "list-item";
-    div.innerText = convo.conversation_id;
-    div.onclick = () => openConversation(convo.conversation_id);
-    list.appendChild(div);
-  });
-}
-
-async function openConversation(id) {
-  currentConversation = id;
-  document.getElementById("messages").innerHTML = "";
-
-  if (realtimeChannel) {
-    supabase.removeChannel(realtimeChannel);
-  }
-
-  loadMessages();
-
-  realtimeChannel = supabase
-    .channel("messages")
-    .on("postgres_changes",
-      { event: "INSERT", schema: "public", table: "messages" },
-      payload => {
-        if (payload.new.conversation_id === currentConversation) {
-          appendMessage(payload.new);
-        }
-      })
-    .subscribe();
-}
-
-async function loadMessages() {
-  const { data } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("conversation_id", currentConversation)
-    .order("created_at");
-
-  const container = document.getElementById("messages");
-  container.innerHTML = "";
-
-  data?.forEach(msg => appendMessage(msg));
-}
-
-function appendMessage(msg) {
-  const div = document.createElement("div");
-  div.className = "message";
-  div.innerText = msg.content;
-  document.getElementById("messages").appendChild(div);
-}
-
-async function sendMessage() {
-  const input = document.getElementById("messageInput");
-  const content = input.value.trim();
-  if (!content || !currentConversation) return;
-
-  await supabase.from("messages").insert({
-    content,
-    sender_id: currentUser.id,
-    conversation_id: currentConversation
-  });
-
-  input.value = "";
-}
-
-document.getElementById("messageInput")
-  .addEventListener("keydown", e => {
-    if (e.key === "Enter") sendMessage();
-  });
-
-async function logout() {
-  await supabase.auth.signOut();
-  location.reload();
-}
-</script>
+<div id="appScreen" style="display:flex;">
+  <div class="sidebar">
+    <button onclick="switchTab('dms')">DMs</button>
+    <button onclick="logout()">Logout</button>
+  </div>
+  <div class="main">
+    <div id="content" style="width:100%;"></div>
+  </div>
+</div>
 
 </body>
 </html>
