@@ -9,7 +9,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const supabase = createClient(
   "https://mcofbchorvsseikgccek.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
+  "YOUR_ANON_KEY_HERE"
 )
 
 let currentUser = null
@@ -71,6 +71,20 @@ function showLogin() {
 function showApp() {
   loginScreen.style.display = "none"
   appScreen.style.display = "flex"
+  loadTab()
+}
+
+// ---------------- TABS ----------------
+
+window.switchTab = (tab) => {
+  activeTab = tab
+  loadTab()
+}
+
+async function loadTab() {
+  if (activeTab === "friends") loadFriends()
+  if (activeTab === "requests") loadRequests()
+  if (activeTab === "dms") loadDMList()
 }
 
 // ---------------- DMs ----------------
@@ -84,15 +98,27 @@ window.openDM = async (conversationId) => {
       <div id="messages" class="messages"></div>
       <div class="chatBottom">
         <input id="messageInput" placeholder="Type message...">
-        <button onclick="sendMessage()">Send</button>
+        <button id="sendBtn">Send</button>
       </div>
     </div>
   `
 
-  setupEnterKey()
+  const input = document.getElementById("messageInput")
+  const button = document.getElementById("sendBtn")
+
+  button.addEventListener("click", sendMessage)
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      sendMessage()
+    }
+  })
+
   await loadMessages()
   subscribeToMessages()
 }
+
 
 // ---------------- ENTER SEND ----------------
 
@@ -124,7 +150,7 @@ function subscribeToMessages() {
         table: "messages",
         filter: `conversation_id=eq.${currentConversationId}`
       },
-      (payload) => {
+      async (payload) => {
         appendMessage(payload.new)
       }
     )
@@ -135,22 +161,17 @@ function subscribeToMessages() {
 
 async function loadMessages() {
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("messages")
     .select("*")
     .eq("conversation_id", currentConversationId)
     .order("created_at", { ascending: true })
 
-  if (error) {
-    console.error("Load messages error:", error)
-    return
-  }
-
   const messagesDiv = document.getElementById("messages")
   messagesDiv.innerHTML = ""
 
   for (let m of data || []) {
-    await appendMessage(m, false)
+    appendMessage(m, false)
   }
 
   messagesDiv.scrollTop = messagesDiv.scrollHeight
@@ -178,40 +199,21 @@ async function appendMessage(message, scroll = true) {
   }
 }
 
-// ---------------- SEND (FIXED) ----------------
+// ---------------- SEND ----------------
 
 window.sendMessage = async () => {
-
-  if (!currentConversationId) {
-    console.error("No conversation selected")
-    return
-  }
 
   const input = document.getElementById("messageInput")
   const text = input.value.trim()
   if (!text) return
 
-  const { data, error } = await supabase
-    .from("messages")
-    .insert({
-      conversation_id: currentConversationId,
-      sender_id: currentUser.id,
-      content: text
-    })
-    .select()
-
-  if (error) {
-    console.error("Message insert failed:", error)
-    alert("Message failed to send. Check console.")
-    return
-  }
+  await supabase.from("messages").insert({
+    conversation_id: currentConversationId,
+    sender_id: currentUser.id,
+    content: text
+  })
 
   input.value = ""
-
-  // Optional immediate append (so it feels instant)
-  if (data && data.length > 0) {
-    appendMessage(data[0])
-  }
 }
 
 checkSession()
