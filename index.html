@@ -14,18 +14,29 @@ body {
   height: 100vh;
 }
 
+#auth {
+  margin: auto;
+  text-align: center;
+}
+
+#auth input {
+  display: block;
+  margin: 10px auto;
+  padding: 8px;
+  width: 200px;
+}
+
+#app {
+  display: none;
+  width: 100%;
+  height: 100%;
+}
+
 #sidebar {
   width: 260px;
   background-color: #2f3136;
   padding: 15px;
   overflow-y: auto;
-}
-
-#sidebar h3 {
-  margin-top: 0;
-  color: #b9bbbe;
-  font-size: 14px;
-  text-transform: uppercase;
 }
 
 .friend-btn {
@@ -95,19 +106,7 @@ body {
   cursor: pointer;
 }
 
-#sendBtn:hover {
-  background-color: #4752c4;
-}
-
-.logout {
-  position: absolute;
-  bottom: 15px;
-  left: 15px;
-  background-color: #ed4245;
-  border: none;
-  padding: 8px;
-  border-radius: 5px;
-  color: white;
+button {
   cursor: pointer;
 }
 </style>
@@ -115,48 +114,135 @@ body {
 
 <body>
 
-<div id="sidebar">
-  <h3>Direct Messages</h3>
-  <div id="friendsList"></div>
-  <button class="logout" onclick="logout()">Logout</button>
+<div id="auth">
+  <h2>Login / Sign Up</h2>
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+  <button onclick="signup()">Sign Up</button>
 </div>
 
-<div id="chat">
-  <div id="chat-header">Select a DM</div>
-  <div id="messages"></div>
+<div id="app">
+  <div id="sidebar">
+    <h3>Add Friend</h3>
+    <input id="friendEmail" placeholder="Friend email">
+    <button onclick="addFriend()">Add</button>
+    <hr>
+    <h3>Direct Messages</h3>
+    <div id="friendsList"></div>
+    <hr>
+    <button onclick="logout()">Logout</button>
+  </div>
 
-  <div id="input-area">
-    <input id="messageInput" placeholder="Message..." />
-    <button id="sendBtn" onclick="sendMessage()">Send</button>
+  <div id="chat">
+    <div id="chat-header">Select a DM</div>
+    <div id="messages"></div>
+
+    <div id="input-area">
+      <input id="messageInput" placeholder="Message...">
+      <button id="sendBtn" onclick="sendMessage()">Send</button>
+    </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+
 const supabaseUrl = "https://mcofbchorvsseikgccek.supabase.co";
-const supabaseKey = "YOUR_ANON_KEY_HERE";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig";
 const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
 let user = null;
 let currentConversationId = null;
-let currentFriendId = null;
 
-async function init() {
-  const { data } = await supabase.auth.getUser();
-  user = data.user;
+// ================= AUTH =================
 
-  if (!user) {
-    alert("Not logged in");
+async function checkSession() {
+  const { data } = await supabase.auth.getSession();
+
+  if (data.session) {
+    user = data.session.user;
+    showApp();
+  } else {
+    showAuth();
+  }
+}
+
+function showApp() {
+  document.getElementById("auth").style.display = "none";
+  document.getElementById("app").style.display = "flex";
+  loadFriends();
+}
+
+function showAuth() {
+  document.getElementById("auth").style.display = "block";
+  document.getElementById("app").style.display = "none";
+}
+
+async function login() {
+  const email = emailInput.value;
+  const password = passwordInput.value;
+
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error) alert(error.message);
+  else checkSession();
+}
+
+async function signup() {
+  const email = emailInput.value;
+  const password = passwordInput.value;
+
+  const { data, error } = await supabase.auth.signUp({ email, password });
+
+  if (error) {
+    alert(error.message);
     return;
   }
 
-  loadFriends();
+  // create profile
+  await supabase.from("profiles").insert({
+    id: data.user.id,
+    email: email
+  });
+
+  alert("Check email to confirm.");
 }
-init();
 
 async function logout() {
   await supabase.auth.signOut();
-  location.reload();
+  showAuth();
+}
+
+// ================= FRIEND SYSTEM =================
+
+async function addFriend() {
+  const email = document.getElementById("friendEmail").value.trim();
+  if (!email) return;
+
+  const { data: friend } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", email)
+    .single();
+
+  if (!friend) {
+    alert("User not found.");
+    return;
+  }
+
+  if (friend.id === user.id) {
+    alert("Cannot add yourself.");
+    return;
+  }
+
+  await supabase.from("friends").insert({
+    user1_id: user.id,
+    user2_id: friend.id
+  });
+
+  document.getElementById("friendEmail").value = "";
+  loadFriends();
 }
 
 async function loadFriends() {
@@ -183,9 +269,9 @@ async function loadFriends() {
   }
 }
 
-async function openDM(friendId) {
+// ================= DMS =================
 
-  currentFriendId = friendId;
+async function openDM(friendId) {
 
   const { data: myConvos } = await supabase
     .from("conversation_participants")
@@ -200,8 +286,6 @@ async function openDM(friendId) {
         .from("conversation_participants")
         .select("user_id")
         .eq("conversation_id", convo.conversation_id);
-
-      if (!participants) continue;
 
       const ids = participants.map(p => p.user_id);
 
@@ -231,7 +315,6 @@ async function openDM(friendId) {
     currentConversationId = foundConversation;
   }
 
-  document.getElementById("chat-header").innerText = "Direct Message";
   loadMessages();
 }
 
@@ -247,8 +330,6 @@ async function loadMessages() {
   const box = document.getElementById("messages");
   box.innerHTML = "";
 
-  if (!messages) return;
-
   for (const m of messages) {
     const div = document.createElement("div");
     div.className = "message";
@@ -260,10 +341,8 @@ async function loadMessages() {
 }
 
 async function sendMessage() {
-  const input = document.getElementById("messageInput");
-  const content = input.value.trim();
-
-  if (!currentConversationId || !content) return;
+  const content = messageInput.value.trim();
+  if (!content || !currentConversationId) return;
 
   await supabase.from("messages").insert({
     conversation_id: currentConversationId,
@@ -271,10 +350,12 @@ async function sendMessage() {
     content: content
   });
 
-  input.value = "";
+  messageInput.value = "";
   loadMessages();
 }
-</script>
 
+checkSession();
+
+</script>
 </body>
 </html>
