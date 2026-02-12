@@ -13,11 +13,20 @@ const supabase = createClient(
 )
 
 let currentUser = null
-let activeTab = "friends"
-let messageChannel = null
 let currentConversationId = null
+let messageChannel = null
 
 // ---------------- AUTH ----------------
+
+async function checkSession() {
+  const { data } = await supabase.auth.getSession()
+  if (data?.session) {
+    currentUser = data.session.user
+    showApp()
+  } else {
+    showLogin()
+  }
+}
 
 window.login = async () => {
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -44,23 +53,13 @@ window.signup = async () => {
     username
   })
 
-  alert("Account created.")
+  alert("Account created. You can login now.")
 }
 
 window.logout = async () => {
   if (messageChannel) supabase.removeChannel(messageChannel)
   await supabase.auth.signOut()
   location.reload()
-}
-
-async function checkSession() {
-  const { data } = await supabase.auth.getSession()
-  if (data?.session) {
-    currentUser = data.session.user
-    showApp()
-  } else {
-    showLogin()
-  }
 }
 
 function showLogin() {
@@ -71,99 +70,13 @@ function showLogin() {
 function showApp() {
   loginScreen.style.display = "none"
   appScreen.style.display = "flex"
-  loadTab()
+  loadConversations()
 }
 
-// ---------------- TABS ----------------
+// ---------------- LOAD DMs ----------------
 
-window.switchTab = (tab) => {
-  activeTab = tab
-  loadTab()
-}
+async function loadConversations() {
 
-async function loadTab() {
-  if (activeTab === "friends") loadFriends()
-  if (activeTab === "requests") loadRequests()
-  if (activeTab === "dms") loadDMList()
-}
-
-// ---------------- FRIENDS ----------------
-
-async function loadFriends() {
-  content.innerHTML = "Loading..."
-
-  const { data } = await supabase
-    .from("friends")
-    .select("*")
-    .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
-    .eq("status", "accepted")
-
-  if (!data?.length) {
-    content.innerHTML = "<p>No friends yet.</p>"
-    return
-  }
-
-  content.innerHTML = ""
-
-  for (let f of data) {
-    const friendId = f.requester_id === currentUser.id
-      ? f.addressee_id
-      : f.requester_id
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", friendId)
-      .single()
-
-    content.innerHTML += `
-      <div class="card" onclick="startDM('${friendId}')">
-        ${profile?.username || "Unknown"}
-      </div>`
-  }
-}
-
-// ---------------- REQUESTS ----------------
-
-async function loadRequests() {
-  content.innerHTML = "Loading..."
-
-  const { data } = await supabase
-    .from("friends")
-    .select("*")
-    .eq("addressee_id", currentUser.id)
-    .eq("status", "pending")
-
-  if (!data?.length) {
-    content.innerHTML = "<p>No pending requests.</p>"
-    return
-  }
-
-  content.innerHTML = ""
-
-  for (let r of data) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", r.requester_id)
-      .single()
-
-    content.innerHTML += `
-      <div class="card">
-        ${profile?.username || "Unknown"}
-        <button onclick="acceptRequest('${r.id}')">Accept</button>
-      </div>`
-  }
-}
-
-window.acceptRequest = async (id) => {
-  await supabase.from("friends").update({ status: "accepted" }).eq("id", id)
-  loadRequests()
-}
-
-// ---------------- DMs LIST ----------------
-
-async function loadDMList() {
   content.innerHTML = "Loading..."
 
   const { data } = await supabase
@@ -178,73 +91,38 @@ async function loadDMList() {
 
   content.innerHTML = ""
 
-  for (let c of data) {
-
-    const { data: participants } = await supabase
-      .from("conversation_participants")
-      .select("user_id")
-      .eq("conversation_id", c.conversation_id)
-
-    const names = []
-
-    for (let p of participants || []) {
-      if (p.user_id === currentUser.id) continue
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("username")
-        .eq("id", p.user_id)
-        .single()
-      if (profile?.username) names.push(profile.username)
-    }
-
-    content.innerHTML += `
-      <div class="card" onclick="openDM('${c.conversation_id}')">
-        ${names.join(", ") || "Conversation"}
-      </div>`
-  }
-}
-
-// ---------------- START DM ----------------
-
-window.startDM = async (friendId) => {
-
-  const { data: existing } = await supabase
-    .from("conversation_participants")
-    .select("conversation_id")
-    .eq("user_id", currentUser.id)
-
-  for (let convo of existing || []) {
+  for (let convo of data) {
 
     const { data: participants } = await supabase
       .from("conversation_participants")
       .select("user_id")
       .eq("conversation_id", convo.conversation_id)
 
-    if (participants?.find(p => p.user_id === friendId)) {
-      switchTab("dms")
-      openDM(convo.conversation_id)
-      return
+    const names = []
+
+    for (let p of participants || []) {
+      if (p.user_id === currentUser.id) continue
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", p.user_id)
+        .single()
+
+      if (profile?.username) names.push(profile.username)
     }
+
+    const div = document.createElement("div")
+    div.className = "card"
+    div.textContent = names.join(", ") || "Conversation"
+    div.onclick = () => openDM(convo.conversation_id)
+    content.appendChild(div)
   }
-
-  const { data: newConvo } = await supabase
-    .from("conversations")
-    .insert({})
-    .select()
-    .single()
-
-  await supabase.from("conversation_participants").insert([
-    { conversation_id: newConvo.id, user_id: currentUser.id },
-    { conversation_id: newConvo.id, user_id: friendId }
-  ])
-
-  switchTab("dms")
-  openDM(newConvo.id)
 }
 
 // ---------------- OPEN DM ----------------
 
-window.openDM = async (conversationId) => {
+async function openDM(conversationId) {
 
   currentConversationId = conversationId
 
@@ -253,83 +131,125 @@ window.openDM = async (conversationId) => {
       <div id="messages" class="messages"></div>
       <div class="chatBottom">
         <input id="messageInput" placeholder="Type message...">
-        <button onclick="sendMessage('${conversationId}')">Send</button>
+        <button id="sendBtn">Send</button>
       </div>
     </div>
   `
 
-  await loadMessages(conversationId)
-  subscribeToMessages(conversationId)
+  const input = document.getElementById("messageInput")
+  const button = document.getElementById("sendBtn")
+
+  button.addEventListener("click", sendMessage)
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      sendMessage()
+    }
+  })
+
+  await loadMessages()
+  subscribeToMessages()
+}
+
+// ---------------- LOAD MESSAGES ----------------
+
+async function loadMessages() {
+
+  const { data } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", currentConversationId)
+    .order("created_at", { ascending: true })
+
+  const messagesDiv = document.getElementById("messages")
+  messagesDiv.innerHTML = ""
+
+  for (let m of data || []) {
+    appendMessage(m, false)
+  }
+
+  messagesDiv.scrollTop = messagesDiv.scrollHeight
+}
+
+// ---------------- APPEND MESSAGE ----------------
+
+async function appendMessage(message, scroll = true) {
+
+  const messagesDiv = document.getElementById("messages")
+  if (!messagesDiv) return
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", message.sender_id)
+    .single()
+
+  const div = document.createElement("div")
+  div.innerHTML = `<strong>${profile?.username || "Unknown"}:</strong> ${message.content}`
+  messagesDiv.appendChild(div)
+
+  if (scroll) {
+    messagesDiv.scrollTop = messagesDiv.scrollHeight
+  }
+}
+
+// ---------------- SEND MESSAGE ----------------
+
+async function sendMessage() {
+
+  if (!currentConversationId) return
+
+  const input = document.getElementById("messageInput")
+  const text = input.value.trim()
+  if (!text) return
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: currentConversationId,
+      sender_id: currentUser.id,
+      content: text
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error(error)
+    alert("Failed to send message.")
+    return
+  }
+
+  appendMessage(data)
+  input.value = ""
 }
 
 // ---------------- REALTIME ----------------
 
-function subscribeToMessages(conversationId) {
+function subscribeToMessages() {
 
   if (messageChannel) {
     supabase.removeChannel(messageChannel)
   }
 
   messageChannel = supabase
-    .channel("messages-" + conversationId)
+    .channel("messages-" + currentConversationId)
     .on(
       "postgres_changes",
       {
         event: "INSERT",
         schema: "public",
         table: "messages",
-        filter: `conversation_id=eq.${conversationId}`
+        filter: `conversation_id=eq.${currentConversationId}`
       },
-      () => {
-        loadMessages(conversationId)
+      (payload) => {
+
+        if (payload.new.sender_id === currentUser.id) return
+
+        appendMessage(payload.new)
       }
     )
     .subscribe()
-}
-
-// ---------------- LOAD MESSAGES ----------------
-
-async function loadMessages(conversationId) {
-
-  const { data } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-
-  const messagesDiv = document.getElementById("messages")
-  if (!messagesDiv) return
-
-  messagesDiv.innerHTML = ""
-
-  for (let m of data || []) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", m.sender_id)
-      .single()
-
-    messagesDiv.innerHTML += `
-      <div><strong>${profile?.username || "Unknown"}:</strong> ${m.content}</div>
-    `
-  }
-
-  messagesDiv.scrollTop = messagesDiv.scrollHeight
-}
-
-// ---------------- SEND ----------------
-
-window.sendMessage = async (conversationId) => {
-  const input = document.getElementById("messageInput")
-  if (!input.value.trim()) return
-
-  await supabase.from("messages").insert({
-    conversation_id: conversationId,
-    sender_id: currentUser.id,
-    content: input.value.trim()
-  })
-
-  input.value = ""
 }
 
 checkSession()
@@ -389,15 +309,10 @@ input { padding:8px; border-radius:4px; border:none; }
 </div>
 
 <div id="appScreen" style="display:flex;">
-  <div class="sidebar">
-    <button onclick="switchTab('friends')">Friends</button>
-    <button onclick="switchTab('requests')">Requests</button>
-    <button onclick="switchTab('dms')">DMs</button>
-    <button onclick="logout()">Logout</button>
-  </div>
   <div class="main">
     <div id="content" style="width:100%;"></div>
   </div>
+  <button style="position:absolute; top:10px; right:10px;" onclick="logout()">Logout</button>
 </div>
 
 </body>
