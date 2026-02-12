@@ -1,229 +1,260 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Discord Clone</title>
 
-<style>
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  background: #313338;
-  color: white;
-  height: 100vh;
-}
-
-/* LOGIN */
-#login-screen {
-  display: flex;
-  height: 100vh;
-  justify-content: center;
-  align-items: center;
-}
-
-.login-box {
-  background: #1e1f22;
-  padding: 30px;
-  border-radius: 8px;
-  width: 300px;
-}
-
-.login-box input {
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 10px;
-  border: none;
-  border-radius: 5px;
-}
-
-.login-box button {
-  width: 100%;
-  padding: 10px;
-  background: #5865f2;
-  border: none;
-  color: white;
-  border-radius: 5px;
-  cursor: pointer;
-}
-
-/* APP */
-#app-screen {
-  display: none;
-  height: 100vh;
-}
-
-.sidebar {
-  width: 240px;
-  background: #1e1f22;
-  padding: 10px;
-}
-
-.sidebar h3 {
-  margin-top: 0;
-}
-
-.friend {
-  padding: 8px;
-  background: #2b2d31;
-  border-radius: 5px;
-  margin-bottom: 5px;
-}
-
-.main {
-  flex: 1;
-  background: #313338;
-  display: flex;
-  flex-direction: column;
-}
-
-.topbar {
-  background: #1e1f22;
-  padding: 10px;
-  display: flex;
-  justify-content: space-between;
-}
-
-.content {
-  flex: 1;
-  padding: 10px;
-}
-</style>
-</head>
-
-<body>
-
-<!-- LOGIN -->
-<div id="login-screen">
-  <div class="login-box">
-    <h2>Login</h2>
-    <input id="email" placeholder="Email">
-    <input id="password" type="password" placeholder="Password">
-    <button onclick="login()">Login</button>
-  </div>
-</div>
-
-<!-- APP -->
-<div id="app-screen">
-  <div class="sidebar">
-    <h3>Friends</h3>
-    <div id="friends-list">Loading...</div>
-  </div>
-
-  <div class="main">
-    <div class="topbar">
-      <div>Home</div>
-      <button onclick="logout()">Logout</button>
-    </div>
-    <div class="content">
-      Select a friend to DM (next step)
-    </div>
-  </div>
-</div>
-
 <script type="module">
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"
 
-const SUPABASE_URL = "https://mcofbchorvsseikgccek.supabase.co"
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+const supabase = createClient(
+  "https://mcofbchorvsseikgccek.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
+)
 
 let currentUser = null
+let activeTab = "friends"
 
-const loginScreen = document.getElementById("login-screen")
-const appScreen = document.getElementById("app-screen")
-const friendsList = document.getElementById("friends-list")
+window.login = async () => {
+  const email = document.getElementById("email").value
+  const password = document.getElementById("password").value
 
-// -------------------- AUTH CHECK --------------------
-async function init() {
-  const { data: { session } } = await supabase.auth.getSession()
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) return alert(error.message)
 
-  if (session) {
-    currentUser = session.user
+  currentUser = data.user
+  showApp()
+}
+
+window.signup = async () => {
+  const email = document.getElementById("email").value
+  const password = document.getElementById("password").value
+
+  const { error } = await supabase.auth.signUp({ email, password })
+  if (error) return alert(error.message)
+
+  alert("Check your email to confirm.")
+}
+
+window.logout = async () => {
+  await supabase.auth.signOut()
+  localStorage.clear()
+  location.reload()
+}
+
+function showLogin() {
+  document.getElementById("loginScreen").style.display = "flex"
+  document.getElementById("appScreen").style.display = "none"
+}
+
+function showApp() {
+  document.getElementById("loginScreen").style.display = "none"
+  document.getElementById("appScreen").style.display = "flex"
+  loadTab()
+}
+
+async function checkSession() {
+  const { data } = await supabase.auth.getSession()
+  if (data.session) {
+    currentUser = data.session.user
     showApp()
   } else {
     showLogin()
   }
 }
 
-function showLogin() {
-  loginScreen.style.display = "flex"
-  appScreen.style.display = "none"
+window.switchTab = (tab) => {
+  activeTab = tab
+  loadTab()
 }
 
-function showApp() {
-  loginScreen.style.display = "none"
-  appScreen.style.display = "flex"
-  loadFriends()
+async function loadTab() {
+  if (activeTab === "friends") loadFriends()
+  if (activeTab === "requests") loadRequests()
+  if (activeTab === "dms") loadDMs()
 }
 
-// -------------------- LOGIN --------------------
-window.login = async function () {
-  const email = document.getElementById("email").value
-  const password = document.getElementById("password").value
-
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password
-  })
-
-  if (error) {
-    alert(error.message)
-    return
-  }
-
-  currentUser = data.user
-  showApp()
-}
-
-// -------------------- LOGOUT --------------------
-window.logout = async function () {
-  await supabase.auth.signOut()
-  showLogin()
-}
-
-// -------------------- FRIENDS --------------------
 async function loadFriends() {
-  friendsList.innerHTML = "Loading..."
+  const container = document.getElementById("content")
+  container.innerHTML = "Loading friends..."
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("friends")
     .select("*")
-    .or(
-      `requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`
-    )
+    .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
     .eq("status", "accepted")
 
-  if (error) {
-    friendsList.innerHTML = "Error loading friends"
-    console.error(error)
-    return
-  }
-
   if (!data.length) {
-    friendsList.innerHTML = "No friends yet"
+    container.innerHTML = "<p>No friends yet.</p>"
     return
   }
 
-  friendsList.innerHTML = ""
+  container.innerHTML = ""
+  data.forEach(f => {
+    const friendId = f.requester_id === currentUser.id
+      ? f.addressee_id
+      : f.requester_id
 
-  data.forEach(row => {
-    const friendId =
-      row.requester_id === currentUser.id
-        ? row.addressee_id
-        : row.requester_id
-
-    const div = document.createElement("div")
-    div.className = "friend"
-    div.textContent = friendId
-    friendsList.appendChild(div)
+    container.innerHTML += `<div class="card">${friendId}</div>`
   })
 }
 
-init()
+async function loadRequests() {
+  const container = document.getElementById("content")
+  container.innerHTML = "Loading requests..."
+
+  const { data } = await supabase
+    .from("friends")
+    .select("*")
+    .eq("addressee_id", currentUser.id)
+    .eq("status", "pending")
+
+  if (!data.length) {
+    container.innerHTML = "<p>No pending requests.</p>"
+    return
+  }
+
+  container.innerHTML = ""
+  data.forEach(r => {
+    container.innerHTML += `
+      <div class="card">
+        ${r.requester_id}
+        <button onclick="acceptRequest('${r.id}')">Accept</button>
+      </div>`
+  })
+}
+
+window.acceptRequest = async (id) => {
+  await supabase.from("friends").update({ status: "accepted" }).eq("id", id)
+  loadRequests()
+}
+
+window.addFriend = async () => {
+  const email = prompt("Enter friend's email:")
+  if (!email) return
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", email)
+    .single()
+
+  if (!profile) return alert("User not found")
+
+  await supabase.from("friends").insert({
+    requester_id: currentUser.id,
+    addressee_id: profile.id,
+    status: "pending"
+  })
+
+  alert("Friend request sent.")
+}
+
+function loadDMs() {
+  document.getElementById("content").innerHTML =
+    "<p>DM system coming next.</p>"
+}
+
+checkSession()
 </script>
+
+<style>
+body {
+  margin:0;
+  font-family:Arial;
+  background:#313338;
+  color:white;
+}
+
+button {
+  background:#5865F2;
+  border:none;
+  padding:8px 12px;
+  border-radius:5px;
+  color:white;
+  cursor:pointer;
+  margin-top:5px;
+}
+
+button:hover { opacity:0.8 }
+
+#loginScreen {
+  display:none;
+  height:100vh;
+  justify-content:center;
+  align-items:center;
+}
+
+.loginBox {
+  background:#1e1f22;
+  padding:30px;
+  border-radius:8px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  width:300px;
+}
+
+input {
+  padding:8px;
+  border-radius:4px;
+  border:none;
+}
+
+#appScreen {
+  display:none;
+  height:100vh;
+}
+
+.sidebar {
+  width:220px;
+  background:#1e1f22;
+  padding:15px;
+}
+
+.sidebar button {
+  width:100%;
+  margin-bottom:10px;
+}
+
+.main {
+  flex:1;
+  padding:20px;
+}
+
+.card {
+  background:#2b2d31;
+  padding:10px;
+  border-radius:6px;
+  margin-bottom:10px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="loginScreen">
+  <div class="loginBox">
+    <h2>Login</h2>
+    <input id="email" placeholder="Email">
+    <input id="password" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+    <button onclick="signup()">Sign Up</button>
+  </div>
+</div>
+
+<div id="appScreen" style="display:flex;">
+  <div class="sidebar">
+    <button onclick="switchTab('friends')">Friends</button>
+    <button onclick="switchTab('requests')">Requests</button>
+    <button onclick="switchTab('dms')">DMs</button>
+    <button onclick="addFriend()">+ Add Friend</button>
+    <button onclick="logout()">Logout</button>
+  </div>
+  <div class="main">
+    <div id="content"></div>
+  </div>
+</div>
 
 </body>
 </html>
