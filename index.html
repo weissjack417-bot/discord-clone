@@ -5,36 +5,138 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body {
+      margin: 0;
       font-family: Arial;
-      background: #36393f;
+      background: #313338;
       color: white;
-      padding: 20px;
+      display: flex;
+      height: 100vh;
     }
-    input, button {
+
+    #sidebar {
+      width: 220px;
+      background: #2b2d31;
+      padding: 15px;
+      overflow-y: auto;
+      border-right: 1px solid #1e1f22;
+    }
+
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #topbar {
+      padding: 15px;
+      background: #232428;
+      border-bottom: 1px solid #1e1f22;
+    }
+
+    #content {
+      flex: 1;
+      display: flex;
+    }
+
+    #friendsList {
+      width: 250px;
+      background: #2b2d31;
+      padding: 10px;
+      overflow-y: auto;
+      border-right: 1px solid #1e1f22;
+    }
+
+    #chatArea {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #messages {
+      flex: 1;
+      padding: 15px;
+      overflow-y: auto;
+    }
+
+    #messageInput {
+      display: flex;
+      padding: 10px;
+      background: #232428;
+    }
+
+    input {
       padding: 8px;
-      margin: 5px;
+      border: none;
+      border-radius: 4px;
+      margin-right: 5px;
     }
-    #app { display: none; }
+
+    button {
+      padding: 8px 10px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #5865f2;
+      color: white;
+    }
+
+    .friend {
+      padding: 8px;
+      margin: 5px 0;
+      background: #404249;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+
+    .friend:hover {
+      background: #4e5058;
+    }
+
+    .message {
+      margin-bottom: 10px;
+    }
+
+    #auth {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+    }
   </style>
 </head>
 <body>
 
-<h2>Auth</h2>
-<input id="email" placeholder="Email">
-<input id="password" type="password" placeholder="Password">
-<button onclick="signUp()">Sign Up</button>
-<button onclick="login()">Login</button>
+<div id="auth">
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password">
+  <button onclick="signUp()">Sign Up</button>
+  <button onclick="login()">Login</button>
+</div>
 
-<div id="app">
-  <h3>You are logged in</h3>
-  <button onclick="logout()">Logout</button>
-
+<div id="sidebar">
   <h3>Add Friend</h3>
-  <input id="friendEmail" placeholder="Friend Email">
-  <button onclick="addFriend()">Add Friend</button>
+  <input id="friendEmail" placeholder="Friend email">
+  <button onclick="sendRequest()">Send</button>
 
-  <h3>Your Friends</h3>
-  <div id="friendsList"></div>
+  <h3>Pending</h3>
+  <div id="pending"></div>
+</div>
+
+<div id="main">
+  <div id="topbar">
+    <button onclick="logout()">Logout</button>
+  </div>
+
+  <div id="content">
+    <div id="friendsList"></div>
+
+    <div id="chatArea">
+      <div id="messages"></div>
+      <div id="messageInput">
+        <input id="newMessage" style="flex:1" placeholder="Message">
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -42,118 +144,159 @@ const supabaseUrl = "https://mcofbchorvsseikgccek.supabase.co";
 const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig";
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
+let currentUser = null;
+let activeChat = null;
+
 async function signUp() {
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
+  const email = email.value;
+  const password = password.value;
 
-  const { data, error } = await supabaseClient.auth.signUp({
-    email,
-    password
-  });
+  const { error } = await supabaseClient.auth.signUp({ email, password });
+  if (error) return alert(error.message);
 
-  if (error) {
-    alert(error.message);
-    return;
-  }
+  const { data } = await supabaseClient.auth.getUser();
+  await supabaseClient.from("profiles").insert([
+    { id: data.user.id, email: data.user.email }
+  ]);
 
-  const { data: userData } = await supabaseClient.auth.getUser();
-
-  if (userData?.user) {
-    await supabaseClient.from("profiles").insert([
-      {
-        id: userData.user.id,
-        email: userData.user.email
-      }
-    ]);
-  }
-
-  alert("Signup successful. You can login.");
+  alert("Signup complete. Login.");
 }
 
 async function login() {
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
-
   const { error } = await supabaseClient.auth.signInWithPassword({
-    email,
-    password
+    email: email.value,
+    password: password.value
   });
-
-  if (error) {
-    alert(error.message);
-    return;
-  }
-
-  loadApp();
+  if (error) return alert(error.message);
 }
 
 async function logout() {
   await supabaseClient.auth.signOut();
-  document.getElementById("app").style.display = "none";
+  location.reload();
 }
 
-async function loadApp() {
-  document.getElementById("app").style.display = "block";
+async function loadUser() {
+  const { data } = await supabaseClient.auth.getUser();
+  if (!data.user) return;
+  currentUser = data.user;
   loadFriends();
+  loadPending();
 }
 
-async function addFriend() {
-  const friendEmail = document.getElementById("friendEmail").value;
-
-  const { data: friendProfile } = await supabaseClient
+async function sendRequest() {
+  const { data } = await supabaseClient
     .from("profiles")
     .select("*")
-    .eq("email", friendEmail)
+    .eq("email", friendEmail.value)
     .single();
 
-  if (!friendProfile) {
-    alert("Email user not found");
-    return;
-  }
-
-  const { data: userData } = await supabaseClient.auth.getUser();
+  if (!data) return alert("Email user not found");
 
   await supabaseClient.from("friends").insert([
     {
-      user_id: userData.user.id,
-      friend_id: friendProfile.id
+      requester_id: currentUser.id,
+      addressee_id: data.id,
+      status: "pending"
     }
   ]);
 
-  alert("Friend added");
+  alert("Friend request sent");
+}
+
+async function loadPending() {
+  const { data } = await supabaseClient
+    .from("friends")
+    .select("*")
+    .eq("addressee_id", currentUser.id)
+    .eq("status", "pending");
+
+  pending.innerHTML = "";
+  data?.forEach(req => {
+    const div = document.createElement("div");
+    div.innerHTML = `
+      Request from ${req.requester_id}
+      <button onclick="accept('${req.id}')">Accept</button>
+    `;
+    pending.appendChild(div);
+  });
+}
+
+async function accept(id) {
+  await supabaseClient
+    .from("friends")
+    .update({ status: "accepted" })
+    .eq("id", id);
+  loadPending();
   loadFriends();
 }
 
 async function loadFriends() {
-  const { data: userData } = await supabaseClient.auth.getUser();
-
-  const { data: friends } = await supabaseClient
+  const { data } = await supabaseClient
     .from("friends")
-    .select("friend_id")
-    .eq("user_id", userData.user.id);
+    .select("*")
+    .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
+    .eq("status", "accepted");
 
-  const list = document.getElementById("friendsList");
-  list.innerHTML = "";
+  friendsList.innerHTML = "";
 
-  for (let f of friends || []) {
+  for (let f of data || []) {
+    const friendId =
+      f.requester_id === currentUser.id
+        ? f.addressee_id
+        : f.requester_id;
+
     const { data: profile } = await supabaseClient
       .from("profiles")
       .select("email")
-      .eq("id", f.friend_id)
+      .eq("id", friendId)
       .single();
 
-    if (profile) {
-      const div = document.createElement("div");
-      div.innerText = profile.email;
-      list.appendChild(div);
-    }
+    const div = document.createElement("div");
+    div.className = "friend";
+    div.innerText = profile.email;
+    div.onclick = () => openChat(friendId, profile.email);
+    friendsList.appendChild(div);
   }
 }
 
+async function openChat(friendId, email) {
+  activeChat = friendId;
+  loadMessages();
+}
+
+async function loadMessages() {
+  const { data } = await supabaseClient
+    .from("messages")
+    .select("*")
+    .or(
+      `and(sender_id.eq.${currentUser.id},receiver_id.eq.${activeChat}),and(sender_id.eq.${activeChat},receiver_id.eq.${currentUser.id})`
+    )
+    .order("created_at");
+
+  messages.innerHTML = "";
+  data?.forEach(m => {
+    const div = document.createElement("div");
+    div.className = "message";
+    div.innerText = m.content;
+    messages.appendChild(div);
+  });
+}
+
+async function sendMessage() {
+  if (!activeChat) return;
+  await supabaseClient.from("messages").insert([
+    {
+      sender_id: currentUser.id,
+      receiver_id: activeChat,
+      content: newMessage.value
+    }
+  ]);
+  newMessage.value = "";
+  loadMessages();
+}
+
 supabaseClient.auth.onAuthStateChange((event, session) => {
-  if (session) {
-    loadApp();
-  }
+  if (session) loadUser();
 });
 </script>
 
