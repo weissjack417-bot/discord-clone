@@ -13,7 +13,7 @@
 
     .hidden { display: none; }
 
-    /* LOGIN SCREEN */
+    /* LOGIN */
     #loginScreen {
       height: 100vh;
       display: flex;
@@ -25,7 +25,7 @@
       background: #2b2d31;
       padding: 30px;
       border-radius: 8px;
-      width: 300px;
+      width: 320px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -33,50 +33,46 @@
 
     input {
       padding: 10px;
-      border: none;
       border-radius: 4px;
+      border: none;
     }
 
     button {
       padding: 10px;
-      border: none;
       border-radius: 4px;
+      border: none;
       cursor: pointer;
       background: #5865f2;
       color: white;
     }
 
-    /* APP LAYOUT */
+    /* APP */
     #app {
       display: flex;
       height: 100vh;
     }
 
     #sidebar {
-      width: 240px;
+      width: 220px;
       background: #2b2d31;
       padding: 15px;
       display: flex;
       flex-direction: column;
-    }
-
-    #sidebar button {
-      margin-bottom: 10px;
-      background: #404249;
+      gap: 10px;
     }
 
     #content {
       flex: 1;
-      background: #313338;
       display: flex;
       flex-direction: column;
     }
 
     #topbar {
-      padding: 15px;
       background: #232428;
+      padding: 15px;
       display: flex;
       justify-content: space-between;
+      align-items: center;
     }
 
     #mainContent {
@@ -87,7 +83,7 @@
 
     .card {
       background: #404249;
-      padding: 10px;
+      padding: 12px;
       border-radius: 6px;
       margin-bottom: 10px;
       display: flex;
@@ -115,22 +111,16 @@
       display: flex;
       gap: 5px;
     }
-
-    #dmHeader {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 10px;
-    }
   </style>
 </head>
 <body>
 
-<!-- LOGIN SCREEN -->
+<!-- LOGIN -->
 <div id="loginScreen">
   <div class="loginBox">
     <h2>Login</h2>
-    <input id="email" placeholder="Email">
-    <input id="password" type="password" placeholder="Password">
+    <input id="emailInput" placeholder="Email">
+    <input id="passwordInput" type="password" placeholder="Password">
     <button onclick="login()">Login</button>
     <button onclick="signUp()">Sign Up</button>
   </div>
@@ -167,26 +157,39 @@ let activeChat = null;
 /* AUTH */
 
 async function signUp() {
-  const { error } = await supabaseClient.auth.signUp({
-    email: email.value,
-    password: password.value
-  });
+  const email = document.getElementById("emailInput").value;
+  const password = document.getElementById("passwordInput").value;
+
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
   if (error) return alert(error.message);
 
-  const { data } = await supabaseClient.auth.getUser();
-  await supabaseClient.from("profiles").insert([
-    { id: data.user.id, email: data.user.email }
-  ]);
+  const user = data.user;
+  if (user) {
+    await supabaseClient.from("profiles").insert([
+      { id: user.id, email: user.email }
+    ]);
+  }
 
-  alert("Signup successful. Login now.");
+  alert("Signup complete. Now login.");
 }
 
 async function login() {
-  const { error } = await supabaseClient.auth.signInWithPassword({
-    email: email.value,
-    password: password.value
+  const email = document.getElementById("emailInput").value;
+  const password = document.getElementById("passwordInput").value;
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
   });
+
   if (error) return alert(error.message);
+
+  currentUser = data.user;
+
+  document.getElementById("loginScreen").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+
+  showFriends();
 }
 
 async function logout() {
@@ -194,43 +197,35 @@ async function logout() {
   location.reload();
 }
 
-supabaseClient.auth.onAuthStateChange((event, session) => {
-  if (session) {
-    currentUser = session.user;
-    loginScreen.classList.add("hidden");
-    app.classList.remove("hidden");
-    showFriends();
-  }
-});
+/* UI SECTION SWITCHING */
 
-/* SECTIONS */
-
-function setTitle(title) {
-  sectionTitle.innerText = title;
+function setTitle(text) {
+  document.getElementById("sectionTitle").innerText = text;
 }
 
 function showFriends() {
   setTitle("Friends");
-  newDmBtn.classList.add("hidden");
+  document.getElementById("newDmBtn").classList.add("hidden");
   loadFriends();
 }
 
 function showRequests() {
   setTitle("Friend Requests");
-  newDmBtn.classList.add("hidden");
+  document.getElementById("newDmBtn").classList.add("hidden");
   loadRequests();
 }
 
 function showDMs() {
   setTitle("Direct Messages");
-  newDmBtn.classList.remove("hidden");
+  document.getElementById("newDmBtn").classList.remove("hidden");
   loadDMList();
 }
 
 /* FRIENDS */
 
 async function loadFriends() {
-  mainContent.innerHTML = "";
+  const container = document.getElementById("mainContent");
+  container.innerHTML = "";
 
   const { data } = await supabaseClient
     .from("friends")
@@ -250,15 +245,16 @@ async function loadFriends() {
 
     const div = document.createElement("div");
     div.className = "card";
-    div.innerHTML = profile.email;
-    mainContent.appendChild(div);
+    div.innerText = profile.email;
+    container.appendChild(div);
   }
 }
 
 /* REQUESTS */
 
 async function loadRequests() {
-  mainContent.innerHTML = "";
+  const container = document.getElementById("mainContent");
+  container.innerHTML = "";
 
   const { data } = await supabaseClient
     .from("friends")
@@ -279,7 +275,7 @@ async function loadRequests() {
       ${profile.email}
       <button onclick="acceptRequest('${req.id}')">Accept</button>
     `;
-    mainContent.appendChild(div);
+    container.appendChild(div);
   }
 }
 
@@ -293,64 +289,13 @@ async function acceptRequest(id) {
 
 /* DMS */
 
-async function loadDMList() {
-  mainContent.innerHTML = "Click + to start a DM";
+function loadDMList() {
+  document.getElementById("mainContent").innerHTML =
+    "Click + to start a DM (coming next step)";
 }
 
 function startNewDM() {
   showFriends();
-  newDmBtn.classList.add("hidden");
-}
-
-/* MESSAGES */
-
-async function openChat(friendId, emailText) {
-  activeChat = friendId;
-  setTitle(emailText);
-
-  mainContent.innerHTML = `
-    <div id="chatArea">
-      <div id="messages"></div>
-      <div id="messageInput">
-        <input id="newMessage" style="flex:1">
-        <button onclick="sendMessage()">Send</button>
-      </div>
-    </div>
-  `;
-
-  loadMessages();
-}
-
-async function loadMessages() {
-  const { data } = await supabaseClient
-    .from("messages")
-    .select("*")
-    .or(
-      `and(sender_id.eq.${currentUser.id},receiver_id.eq.${activeChat}),and(sender_id.eq.${activeChat},receiver_id.eq.${currentUser.id})`
-    )
-    .order("created_at");
-
-  const msgBox = document.getElementById("messages");
-  msgBox.innerHTML = "";
-
-  for (let m of data || []) {
-    const div = document.createElement("div");
-    div.className = "message";
-    div.innerText = m.content;
-    msgBox.appendChild(div);
-  }
-}
-
-async function sendMessage() {
-  await supabaseClient.from("messages").insert([
-    {
-      sender_id: currentUser.id,
-      receiver_id: activeChat,
-      content: newMessage.value
-    }
-  ]);
-  newMessage.value = "";
-  loadMessages();
 }
 </script>
 
