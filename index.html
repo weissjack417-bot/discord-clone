@@ -36,7 +36,7 @@ window.signup = async () => {
   if (!username) return alert("Username is required.")
 
   // Check if username already exists
-  const { data: existing, error: checkError } = await supabase
+  const { data: existing } = await supabase
     .from("profiles")
     .select("id")
     .eq("username", username)
@@ -93,40 +93,38 @@ window.switchTab = (tab) => {
   loadTab()
 }
 
-// ---------------- LOAD TABS ----------------
-async function loadTab() {
-  if (activeTab === "friends") loadFriends()
-  if (activeTab === "requests") loadRequests()
-  if (activeTab === "dms") loadDMs()
-}
-
 // ---------------- LOAD FRIENDS ----------------
 async function loadFriends() {
   const container = document.getElementById("content")
   container.innerHTML = "Loading friends..."
 
-  const { data, error } = await supabase
+  // Step 1: get all accepted friendships for current user
+  const { data: friendsData, error } = await supabase
     .from("friends")
-    .select(`
-      id,
-      requester_id,
-      addressee_id,
-      status,
-      requester:profiles!friends_requester_id_fkey(username,email),
-      addressee:profiles!friends_addressee_id_fkey(username,email)
-    `)
+    .select("id, requester_id, addressee_id")
     .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
     .eq("status", "accepted")
 
-  if (!data || data.length === 0) {
+  if (!friendsData || friendsData.length === 0) {
     container.innerHTML = "<p>No friends yet.</p>"
     return
   }
 
+  // Step 2: get usernames of all friends
+  const friendIds = friendsData.map(f => (f.requester_id === currentUser.id ? f.addressee_id : f.requester_id))
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, username, email")
+    .in("id", friendIds)
+
+  const usernameMap = {}
+  profiles.forEach(p => usernameMap[p.id] = p.username || p.email)
+
+  // Step 3: render friends
   container.innerHTML = ""
-  data.forEach(f => {
-    const friend = f.requester_id === currentUser.id ? f.addressee : f.requester
-    const displayName = friend.username || friend.email
+  friendsData.forEach(f => {
+    const friendId = f.requester_id === currentUser.id ? f.addressee_id : f.requester_id
+    const displayName = usernameMap[friendId] || "Unknown"
     container.innerHTML += `<div class="card">${displayName}</div>`
   })
 }
@@ -136,24 +134,32 @@ async function loadRequests() {
   const container = document.getElementById("content")
   container.innerHTML = "Loading requests..."
 
-  const { data } = await supabase
+  // Step 1: get pending requests where currentUser is addressee
+  const { data: requests, error } = await supabase
     .from("friends")
-    .select(`
-      id,
-      requester:profiles!friends_requester_id_fkey(username,email)
-    `)
+    .select("id, requester_id")
     .eq("addressee_id", currentUser.id)
     .eq("status", "pending")
 
-  if (!data || data.length === 0) {
+  if (!requests || requests.length === 0) {
     container.innerHTML = "<p>No pending requests.</p>"
     return
   }
 
+  // Step 2: get usernames of requesters
+  const requesterIds = requests.map(r => r.requester_id)
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, username, email")
+    .in("id", requesterIds)
+
+  const usernameMap = {}
+  profiles.forEach(p => usernameMap[p.id] = p.username || p.email)
+
+  // Step 3: render requests
   container.innerHTML = ""
-  data.forEach(r => {
-    const requester = r.requester
-    const displayName = requester.username || requester.email
+  requests.forEach(r => {
+    const displayName = usernameMap[r.requester_id] || "Unknown"
     container.innerHTML += `
       <div class="card">
         ${displayName}
@@ -176,7 +182,7 @@ window.addFriend = async () => {
 
   const { data: profile, error } = await supabase
     .from("profiles")
-    .select("id,username,email")
+    .select("id, username, email")
     .eq("email", email)
     .single()
 
