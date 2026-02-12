@@ -9,13 +9,12 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const supabase = createClient(
   "https://mcofbchorvsseikgccek.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig" // replace with your actual anon key
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
 )
 
 let currentUser = null
 let activeTab = "friends"
 
-// ---------------- LOGIN ----------------
 window.login = async () => {
   const email = document.getElementById("email").value
   const password = document.getElementById("password").value
@@ -27,44 +26,22 @@ window.login = async () => {
   showApp()
 }
 
-// ---------------- SIGNUP ----------------
 window.signup = async () => {
   const email = document.getElementById("email").value
   const password = document.getElementById("password").value
-  const username = document.getElementById("username").value.trim()
 
-  if (!username) return alert("Username is required.")
+  const { error } = await supabase.auth.signUp({ email, password })
+  if (error) return alert(error.message)
 
-  // Check if username already exists
-  const { data: existing } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("username", username)
-    .single()
-
-  if (existing) return alert("Username already taken!")
-
-  // Sign up user
-  const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
-  if (authError) return alert(authError.message)
-
-  // Insert profile with username
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .insert({ id: authData.user.id, email, username })
-  if (profileError) return alert(profileError.message)
-
-  alert("Account created! Check your email to confirm.")
+  alert("Check your email to confirm.")
 }
 
-// ---------------- LOGOUT ----------------
 window.logout = async () => {
   await supabase.auth.signOut()
   localStorage.clear()
   location.reload()
 }
 
-// ---------------- SHOW SCREENS ----------------
 function showLogin() {
   document.getElementById("loginScreen").style.display = "flex"
   document.getElementById("appScreen").style.display = "none"
@@ -76,7 +53,6 @@ function showApp() {
   loadTab()
 }
 
-// ---------------- CHECK SESSION ----------------
 async function checkSession() {
   const { data } = await supabase.auth.getSession()
   if (data.session) {
@@ -87,106 +63,83 @@ async function checkSession() {
   }
 }
 
-// ---------------- TAB SWITCH ----------------
 window.switchTab = (tab) => {
   activeTab = tab
   loadTab()
 }
 
-// ---------------- LOAD FRIENDS ----------------
+async function loadTab() {
+  if (activeTab === "friends") loadFriends()
+  if (activeTab === "requests") loadRequests()
+  if (activeTab === "dms") loadDMs()
+}
+
 async function loadFriends() {
   const container = document.getElementById("content")
   container.innerHTML = "Loading friends..."
 
-  // Step 1: get all accepted friendships for current user
-  const { data: friendsData, error } = await supabase
+  const { data } = await supabase
     .from("friends")
-    .select("id, requester_id, addressee_id")
+    .select("*")
     .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
     .eq("status", "accepted")
 
-  if (!friendsData || friendsData.length === 0) {
+  if (!data.length) {
     container.innerHTML = "<p>No friends yet.</p>"
     return
   }
 
-  // Step 2: get usernames of all friends
-  const friendIds = friendsData.map(f => (f.requester_id === currentUser.id ? f.addressee_id : f.requester_id))
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, username, email")
-    .in("id", friendIds)
-
-  const usernameMap = {}
-  profiles.forEach(p => usernameMap[p.id] = p.username || p.email)
-
-  // Step 3: render friends
   container.innerHTML = ""
-  friendsData.forEach(f => {
-    const friendId = f.requester_id === currentUser.id ? f.addressee_id : f.requester_id
-    const displayName = usernameMap[friendId] || "Unknown"
-    container.innerHTML += `<div class="card">${displayName}</div>`
+  data.forEach(f => {
+    const friendId = f.requester_id === currentUser.id
+      ? f.addressee_id
+      : f.requester_id
+
+    container.innerHTML += `<div class="card">${friendId}</div>`
   })
 }
 
-// ---------------- LOAD REQUESTS ----------------
 async function loadRequests() {
   const container = document.getElementById("content")
   container.innerHTML = "Loading requests..."
 
-  // Step 1: get pending requests where currentUser is addressee
-  const { data: requests, error } = await supabase
+  const { data } = await supabase
     .from("friends")
-    .select("id, requester_id")
+    .select("*")
     .eq("addressee_id", currentUser.id)
     .eq("status", "pending")
 
-  if (!requests || requests.length === 0) {
+  if (!data.length) {
     container.innerHTML = "<p>No pending requests.</p>"
     return
   }
 
-  // Step 2: get usernames of requesters
-  const requesterIds = requests.map(r => r.requester_id)
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, username, email")
-    .in("id", requesterIds)
-
-  const usernameMap = {}
-  profiles.forEach(p => usernameMap[p.id] = p.username || p.email)
-
-  // Step 3: render requests
   container.innerHTML = ""
-  requests.forEach(r => {
-    const displayName = usernameMap[r.requester_id] || "Unknown"
+  data.forEach(r => {
     container.innerHTML += `
       <div class="card">
-        ${displayName}
+        ${r.requester_id}
         <button onclick="acceptRequest('${r.id}')">Accept</button>
       </div>`
   })
 }
 
-// ---------------- ACCEPT REQUEST ----------------
 window.acceptRequest = async (id) => {
   await supabase.from("friends").update({ status: "accepted" }).eq("id", id)
   loadRequests()
-  loadFriends()
 }
 
-// ---------------- ADD FRIEND ----------------
 window.addFriend = async () => {
   const email = prompt("Enter friend's email:")
   if (!email) return
 
-  const { data: profile, error } = await supabase
+  const { data: profile } = await supabase
     .from("profiles")
-    .select("id, username, email")
+    .select("id")
     .eq("email", email)
     .single()
 
-  if (error || !profile) return alert("User not found")
+  if (!profile) return alert("User not found")
 
   await supabase.from("friends").insert({
     requester_id: currentUser.id,
@@ -197,13 +150,11 @@ window.addFriend = async () => {
   alert("Friend request sent.")
 }
 
-// ---------------- DMS PLACEHOLDER ----------------
 function loadDMs() {
   document.getElementById("content").innerHTML =
     "<p>DM system coming next.</p>"
 }
 
-// ---------------- INITIAL CHECK ----------------
 checkSession()
 </script>
 
@@ -284,9 +235,8 @@ input {
 
 <div id="loginScreen">
   <div class="loginBox">
-    <h2>Login / Create Account</h2>
+    <h2>Login</h2>
     <input id="email" placeholder="Email">
-    <input id="username" placeholder="Username (for new accounts)">
     <input id="password" type="password" placeholder="Password">
     <button onclick="login()">Login</button>
     <button onclick="signup()">Sign Up</button>
