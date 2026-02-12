@@ -38,8 +38,7 @@ window.signup = async () => {
 
   const { data, error } = await supabase.auth.signUp({ email, password })
   if (error) return alert(error.message)
-
-  if (!data.user) return alert("Signup failed.")
+  if (!data.user) return alert("Signup failed")
 
   const { error: profileError } = await supabase
     .from("profiles")
@@ -106,8 +105,7 @@ async function loadFriends() {
     .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
     .eq("status", "accepted")
 
-  if (error) return content.innerHTML = error.message
-  if (!data || data.length === 0) {
+  if (error || !data || data.length === 0) {
     content.innerHTML = "<p>No friends yet.</p>"
     return
   }
@@ -185,13 +183,6 @@ window.addFriend = async () => {
   if (!profile) return alert("User not found")
   if (profile.id === currentUser.id) return alert("You can't add yourself")
 
-  const { data: existing } = await supabase
-    .from("friends")
-    .select("*")
-    .or(`and(requester_id.eq.${currentUser.id},addressee_id.eq.${profile.id}),and(requester_id.eq.${profile.id},addressee_id.eq.${currentUser.id})`)
-
-  if (existing.length > 0) return alert("Friend request already exists")
-
   await supabase.from("friends").insert({
     requester_id: currentUser.id,
     addressee_id: profile.id,
@@ -219,10 +210,15 @@ async function loadDMList() {
   content.innerHTML = ""
 
   for (let c of data) {
+
+    if (!c.conversation_id) continue   // 🚨 skip broken rows
+
     const { data: participants } = await supabase
       .from("conversation_participants")
       .select("user_id")
       .eq("conversation_id", c.conversation_id)
+
+    if (!participants) continue
 
     const other = participants.find(p => p.user_id !== currentUser.id)
     if (!other) continue
@@ -247,11 +243,18 @@ window.startDM = async (friendId) => {
     .select("conversation_id")
     .eq("user_id", currentUser.id)
 
+  if (!existing) return
+
   for (let convo of existing) {
+
+    if (!convo.conversation_id) continue
+
     const { data: participants } = await supabase
       .from("conversation_participants")
       .select("user_id")
       .eq("conversation_id", convo.conversation_id)
+
+    if (!participants) continue
 
     if (participants.find(p => p.user_id === friendId)) {
       switchTab("dms")
@@ -266,6 +269,8 @@ window.startDM = async (friendId) => {
     .select()
     .single()
 
+  if (!newConvo) return alert("Could not create conversation.")
+
   await supabase.from("conversation_participants").insert([
     { conversation_id: newConvo.id, user_id: currentUser.id },
     { conversation_id: newConvo.id, user_id: friendId }
@@ -276,6 +281,8 @@ window.startDM = async (friendId) => {
 }
 
 window.openDM = async (conversationId) => {
+
+  if (!conversationId) return
 
   if (messageSubscription) supabase.removeChannel(messageSubscription)
 
@@ -288,18 +295,12 @@ window.openDM = async (conversationId) => {
   `
 
   loadMessages(conversationId)
-
-  messageSubscription = supabase
-    .channel("messages")
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
-      () => loadMessages(conversationId)
-    )
-    .subscribe()
 }
 
 async function loadMessages(conversationId) {
+
+  if (!conversationId) return
+
   const { data } = await supabase
     .from("messages")
     .select("*")
@@ -311,7 +312,7 @@ async function loadMessages(conversationId) {
 
   messagesDiv.innerHTML = ""
 
-  for (let m of data) {
+  for (let m of data || []) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("username")
@@ -319,7 +320,7 @@ async function loadMessages(conversationId) {
       .single()
 
     messagesDiv.innerHTML += `
-      <div><strong>${profile?.username}:</strong> ${m.content}</div>
+      <div><strong>${profile?.username || "Unknown"}:</strong> ${m.content}</div>
     `
   }
 
@@ -328,7 +329,7 @@ async function loadMessages(conversationId) {
 
 window.sendMessage = async (conversationId) => {
   const input = document.getElementById("messageInput")
-  if (!input.value.trim()) return
+  if (!input || !input.value.trim()) return
 
   await supabase.from("messages").insert({
     conversation_id: conversationId,
@@ -337,6 +338,7 @@ window.sendMessage = async (conversationId) => {
   })
 
   input.value = ""
+  loadMessages(conversationId)
 }
 
 checkSession()
