@@ -14,6 +14,8 @@ const supabase = createClient(
 
 let currentUser = null
 let activeTab = "friends"
+let messageChannel = null
+let currentConversationId = null
 
 // ---------------- AUTH ----------------
 
@@ -23,7 +25,6 @@ window.login = async () => {
     password: passwordInput.value.trim()
   })
   if (error) return alert(error.message)
-
   currentUser = data.user
   showApp()
 }
@@ -32,7 +33,6 @@ window.signup = async () => {
   const email = emailInput.value.trim()
   const password = passwordInput.value.trim()
   const username = usernameInput.value.trim()
-
   if (!username) return alert("Username required")
 
   const { data, error } = await supabase.auth.signUp({ email, password })
@@ -48,6 +48,7 @@ window.signup = async () => {
 }
 
 window.logout = async () => {
+  if (messageChannel) supabase.removeChannel(messageChannel)
   await supabase.auth.signOut()
   location.reload()
 }
@@ -160,29 +161,6 @@ window.acceptRequest = async (id) => {
   loadRequests()
 }
 
-// ---------------- ADD FRIEND ----------------
-
-window.addFriend = async () => {
-  const username = prompt("Enter username:")
-  if (!username) return
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("username", username)
-    .single()
-
-  if (!profile) return alert("User not found")
-
-  await supabase.from("friends").insert({
-    requester_id: currentUser.id,
-    addressee_id: profile.id,
-    status: "pending"
-  })
-
-  alert("Friend request sent.")
-}
-
 // ---------------- DMs LIST ----------------
 
 async function loadDMList() {
@@ -268,41 +246,45 @@ window.startDM = async (friendId) => {
 
 window.openDM = async (conversationId) => {
 
+  currentConversationId = conversationId
+
   content.innerHTML = `
     <div class="chatContainer">
       <div id="messages" class="messages"></div>
-
       <div class="chatBottom">
-        <button onclick="addToConversation('${conversationId}')">+</button>
         <input id="messageInput" placeholder="Type message...">
         <button onclick="sendMessage('${conversationId}')">Send</button>
       </div>
     </div>
   `
 
-  loadMessages(conversationId)
+  await loadMessages(conversationId)
+  subscribeToMessages(conversationId)
 }
 
-// ---------------- ADD USER TO GROUP ----------------
+// ---------------- REALTIME ----------------
 
-window.addToConversation = async (conversationId) => {
-  const username = prompt("Enter username to add:")
-  if (!username) return
+function subscribeToMessages(conversationId) {
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("username", username)
-    .single()
+  if (messageChannel) {
+    supabase.removeChannel(messageChannel)
+  }
 
-  if (!profile) return alert("User not found")
-
-  await supabase.from("conversation_participants").insert({
-    conversation_id: conversationId,
-    user_id: profile.id
-  })
-
-  alert("User added to conversation.")
+  messageChannel = supabase
+    .channel("messages-" + conversationId)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+        filter: `conversation_id=eq.${conversationId}`
+      },
+      () => {
+        loadMessages(conversationId)
+      }
+    )
+    .subscribe()
 }
 
 // ---------------- LOAD MESSAGES ----------------
@@ -316,6 +298,8 @@ async function loadMessages(conversationId) {
     .order("created_at", { ascending: true })
 
   const messagesDiv = document.getElementById("messages")
+  if (!messagesDiv) return
+
   messagesDiv.innerHTML = ""
 
   for (let m of data || []) {
@@ -333,6 +317,8 @@ async function loadMessages(conversationId) {
   messagesDiv.scrollTop = messagesDiv.scrollHeight
 }
 
+// ---------------- SEND ----------------
+
 window.sendMessage = async (conversationId) => {
   const input = document.getElementById("messageInput")
   if (!input.value.trim()) return
@@ -344,7 +330,6 @@ window.sendMessage = async (conversationId) => {
   })
 
   input.value = ""
-  loadMessages(conversationId)
 }
 
 checkSession()
@@ -408,7 +393,6 @@ input { padding:8px; border-radius:4px; border:none; }
     <button onclick="switchTab('friends')">Friends</button>
     <button onclick="switchTab('requests')">Requests</button>
     <button onclick="switchTab('dms')">DMs</button>
-    <button onclick="addFriend()">+ Add Friend</button>
     <button onclick="logout()">Logout</button>
   </div>
   <div class="main">
