@@ -1,14 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Chat App</title>
+
 <script type="module">
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"
 
 const supabase = createClient(
   "https://mcofbchorvsseikgccek.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
+  "YOUR_ANON_KEY_HERE"
 )
 
 let currentUser = null
 let activeTab = "friends"
-let messageChannel = null
 
 // ---------------- AUTH ----------------
 
@@ -43,7 +48,6 @@ window.signup = async () => {
 }
 
 window.logout = async () => {
-  if (messageChannel) supabase.removeChannel(messageChannel)
   await supabase.auth.signOut()
   location.reload()
 }
@@ -82,29 +86,182 @@ async function loadTab() {
   if (activeTab === "dms") loadDMList()
 }
 
-// ---------------- REALTIME ----------------
+// ---------------- FRIENDS ----------------
 
-function subscribeToMessages(conversationId) {
+async function loadFriends() {
+  content.innerHTML = "Loading..."
 
-  if (messageChannel) {
-    supabase.removeChannel(messageChannel)
+  const { data } = await supabase
+    .from("friends")
+    .select("*")
+    .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
+    .eq("status", "accepted")
+
+  if (!data?.length) {
+    content.innerHTML = "<p>No friends yet.</p>"
+    return
   }
 
-  messageChannel = supabase
-    .channel("messages-" + conversationId)
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "messages",
-        filter: `conversation_id=eq.${conversationId}`
-      },
-      () => {
-        loadMessages(conversationId)
-      }
-    )
-    .subscribe()
+  content.innerHTML = ""
+
+  for (let f of data) {
+    const friendId = f.requester_id === currentUser.id
+      ? f.addressee_id
+      : f.requester_id
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", friendId)
+      .single()
+
+    content.innerHTML += `
+      <div class="card" onclick="startDM('${friendId}')">
+        ${profile?.username || "Unknown"}
+      </div>`
+  }
+}
+
+// ---------------- REQUESTS ----------------
+
+async function loadRequests() {
+  content.innerHTML = "Loading..."
+
+  const { data } = await supabase
+    .from("friends")
+    .select("*")
+    .eq("addressee_id", currentUser.id)
+    .eq("status", "pending")
+
+  if (!data?.length) {
+    content.innerHTML = "<p>No pending requests.</p>"
+    return
+  }
+
+  content.innerHTML = ""
+
+  for (let r of data) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", r.requester_id)
+      .single()
+
+    content.innerHTML += `
+      <div class="card">
+        ${profile?.username || "Unknown"}
+        <button onclick="acceptRequest('${r.id}')">Accept</button>
+      </div>`
+  }
+}
+
+window.acceptRequest = async (id) => {
+  await supabase.from("friends").update({ status: "accepted" }).eq("id", id)
+  loadRequests()
+}
+
+// ---------------- ADD FRIEND ----------------
+
+window.addFriend = async () => {
+  const username = prompt("Enter username:")
+  if (!username) return
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("username", username)
+    .single()
+
+  if (!profile) return alert("User not found")
+
+  await supabase.from("friends").insert({
+    requester_id: currentUser.id,
+    addressee_id: profile.id,
+    status: "pending"
+  })
+
+  alert("Friend request sent.")
+}
+
+// ---------------- DMs LIST ----------------
+
+async function loadDMList() {
+  content.innerHTML = "Loading..."
+
+  const { data } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("user_id", currentUser.id)
+
+  if (!data?.length) {
+    content.innerHTML = "<p>No conversations yet.</p>"
+    return
+  }
+
+  content.innerHTML = ""
+
+  for (let c of data) {
+
+    const { data: participants } = await supabase
+      .from("conversation_participants")
+      .select("user_id")
+      .eq("conversation_id", c.conversation_id)
+
+    const names = []
+
+    for (let p of participants || []) {
+      if (p.user_id === currentUser.id) continue
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", p.user_id)
+        .single()
+      if (profile?.username) names.push(profile.username)
+    }
+
+    content.innerHTML += `
+      <div class="card" onclick="openDM('${c.conversation_id}')">
+        ${names.join(", ") || "Conversation"}
+      </div>`
+  }
+}
+
+// ---------------- START DM ----------------
+
+window.startDM = async (friendId) => {
+
+  const { data: existing } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("user_id", currentUser.id)
+
+  for (let convo of existing || []) {
+
+    const { data: participants } = await supabase
+      .from("conversation_participants")
+      .select("user_id")
+      .eq("conversation_id", convo.conversation_id)
+
+    if (participants?.find(p => p.user_id === friendId)) {
+      switchTab("dms")
+      openDM(convo.conversation_id)
+      return
+    }
+  }
+
+  const { data: newConvo } = await supabase
+    .from("conversations")
+    .insert({})
+    .select()
+    .single()
+
+  await supabase.from("conversation_participants").insert([
+    { conversation_id: newConvo.id, user_id: currentUser.id },
+    { conversation_id: newConvo.id, user_id: friendId }
+  ])
+
+  switchTab("dms")
+  openDM(newConvo.id)
 }
 
 // ---------------- OPEN DM ----------------
@@ -123,19 +280,29 @@ window.openDM = async (conversationId) => {
     </div>
   `
 
-  setupEnter(conversationId)
   loadMessages(conversationId)
-  subscribeToMessages(conversationId)
 }
 
-function setupEnter(conversationId) {
-  const input = document.getElementById("messageInput")
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault()
-      sendMessage(conversationId)
-    }
+// ---------------- ADD USER TO GROUP ----------------
+
+window.addToConversation = async (conversationId) => {
+  const username = prompt("Enter username to add:")
+  if (!username) return
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("username", username)
+    .single()
+
+  if (!profile) return alert("User not found")
+
+  await supabase.from("conversation_participants").insert({
+    conversation_id: conversationId,
+    user_id: profile.id
   })
+
+  alert("User added to conversation.")
 }
 
 // ---------------- LOAD MESSAGES ----------------
@@ -166,27 +333,88 @@ async function loadMessages(conversationId) {
   messagesDiv.scrollTop = messagesDiv.scrollHeight
 }
 
-// ---------------- SEND ----------------
-
 window.sendMessage = async (conversationId) => {
   const input = document.getElementById("messageInput")
-  const text = input.value.trim()
-  if (!text) return
+  if (!input.value.trim()) return
 
-  const { error } = await supabase.from("messages").insert({
+  await supabase.from("messages").insert({
     conversation_id: conversationId,
     sender_id: currentUser.id,
-    content: text
+    content: input.value.trim()
   })
 
-  if (error) {
-    console.error(error)
-    alert("Message failed to send.")
-    return
-  }
-
   input.value = ""
+  loadMessages(conversationId)
 }
 
 checkSession()
 </script>
+
+<style>
+body { margin:0; font-family:Arial; background:#313338; color:white; }
+button { background:#5865F2; border:none; padding:8px 12px; border-radius:5px; color:white; cursor:pointer; }
+button:hover { opacity:0.85 }
+
+#loginScreen { display:none; height:100vh; justify-content:center; align-items:center; }
+.loginBox { background:#1e1f22; padding:30px; border-radius:8px; display:flex; flex-direction:column; gap:10px; width:300px; }
+input { padding:8px; border-radius:4px; border:none; }
+
+#appScreen { display:none; height:100vh; }
+.sidebar { width:220px; background:#1e1f22; padding:15px; }
+.sidebar button { width:100%; margin-bottom:10px; }
+
+.main { flex:1; padding:20px; display:flex; }
+
+.card { background:#2b2d31; padding:10px; border-radius:6px; margin-bottom:10px; cursor:pointer; }
+
+.chatContainer {
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  width:100%;
+}
+
+.messages {
+  flex:1;
+  overflow-y:auto;
+  margin-bottom:10px;
+}
+
+.chatBottom {
+  display:flex;
+  gap:10px;
+}
+.chatBottom input {
+  flex:1;
+}
+</style>
+</head>
+
+<body>
+
+<div id="loginScreen">
+  <div class="loginBox">
+    <h2>Login / Sign Up</h2>
+    <input id="emailInput" placeholder="Email">
+    <input id="passwordInput" type="password" placeholder="Password">
+    <input id="usernameInput" placeholder="Username (signup only)">
+    <button onclick="login()">Login</button>
+    <button onclick="signup()">Sign Up</button>
+  </div>
+</div>
+
+<div id="appScreen" style="display:flex;">
+  <div class="sidebar">
+    <button onclick="switchTab('friends')">Friends</button>
+    <button onclick="switchTab('requests')">Requests</button>
+    <button onclick="switchTab('dms')">DMs</button>
+    <button onclick="addFriend()">+ Add Friend</button>
+    <button onclick="logout()">Logout</button>
+  </div>
+  <div class="main">
+    <div id="content" style="width:100%;"></div>
+  </div>
+</div>
+
+</body>
+</html>
