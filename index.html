@@ -9,12 +9,13 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const supabase = createClient(
   "https://mcofbchorvsseikgccek.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig" // replace with your actual anon key
 )
 
 let currentUser = null
 let activeTab = "friends"
 
+// ---------------- LOGIN ----------------
 window.login = async () => {
   const email = document.getElementById("email").value
   const password = document.getElementById("password").value
@@ -26,22 +27,44 @@ window.login = async () => {
   showApp()
 }
 
+// ---------------- SIGNUP ----------------
 window.signup = async () => {
   const email = document.getElementById("email").value
   const password = document.getElementById("password").value
+  const username = document.getElementById("username").value.trim()
 
-  const { error } = await supabase.auth.signUp({ email, password })
-  if (error) return alert(error.message)
+  if (!username) return alert("Username is required.")
 
-  alert("Check your email to confirm.")
+  // Check if username already exists
+  const { data: existing, error: checkError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("username", username)
+    .single()
+
+  if (existing) return alert("Username already taken!")
+
+  // Sign up user
+  const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
+  if (authError) return alert(authError.message)
+
+  // Insert profile with username
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .insert({ id: authData.user.id, email, username })
+  if (profileError) return alert(profileError.message)
+
+  alert("Account created! Check your email to confirm.")
 }
 
+// ---------------- LOGOUT ----------------
 window.logout = async () => {
   await supabase.auth.signOut()
   localStorage.clear()
   location.reload()
 }
 
+// ---------------- SHOW SCREENS ----------------
 function showLogin() {
   document.getElementById("loginScreen").style.display = "flex"
   document.getElementById("appScreen").style.display = "none"
@@ -53,6 +76,7 @@ function showApp() {
   loadTab()
 }
 
+// ---------------- CHECK SESSION ----------------
 async function checkSession() {
   const { data } = await supabase.auth.getSession()
   if (data.session) {
@@ -63,83 +87,100 @@ async function checkSession() {
   }
 }
 
+// ---------------- TAB SWITCH ----------------
 window.switchTab = (tab) => {
   activeTab = tab
   loadTab()
 }
 
+// ---------------- LOAD TABS ----------------
 async function loadTab() {
   if (activeTab === "friends") loadFriends()
   if (activeTab === "requests") loadRequests()
   if (activeTab === "dms") loadDMs()
 }
 
+// ---------------- LOAD FRIENDS ----------------
 async function loadFriends() {
   const container = document.getElementById("content")
   container.innerHTML = "Loading friends..."
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("friends")
-    .select("*")
+    .select(`
+      id,
+      requester_id,
+      addressee_id,
+      status,
+      requester:profiles!friends_requester_id_fkey(username,email),
+      addressee:profiles!friends_addressee_id_fkey(username,email)
+    `)
     .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
     .eq("status", "accepted")
 
-  if (!data.length) {
+  if (!data || data.length === 0) {
     container.innerHTML = "<p>No friends yet.</p>"
     return
   }
 
   container.innerHTML = ""
   data.forEach(f => {
-    const friendId = f.requester_id === currentUser.id
-      ? f.addressee_id
-      : f.requester_id
-
-    container.innerHTML += `<div class="card">${friendId}</div>`
+    const friend = f.requester_id === currentUser.id ? f.addressee : f.requester
+    const displayName = friend.username || friend.email
+    container.innerHTML += `<div class="card">${displayName}</div>`
   })
 }
 
+// ---------------- LOAD REQUESTS ----------------
 async function loadRequests() {
   const container = document.getElementById("content")
   container.innerHTML = "Loading requests..."
 
   const { data } = await supabase
     .from("friends")
-    .select("*")
+    .select(`
+      id,
+      requester:profiles!friends_requester_id_fkey(username,email)
+    `)
     .eq("addressee_id", currentUser.id)
     .eq("status", "pending")
 
-  if (!data.length) {
+  if (!data || data.length === 0) {
     container.innerHTML = "<p>No pending requests.</p>"
     return
   }
 
   container.innerHTML = ""
   data.forEach(r => {
+    const requester = r.requester
+    const displayName = requester.username || requester.email
     container.innerHTML += `
       <div class="card">
-        ${r.requester_id}
+        ${displayName}
         <button onclick="acceptRequest('${r.id}')">Accept</button>
       </div>`
   })
 }
 
+// ---------------- ACCEPT REQUEST ----------------
 window.acceptRequest = async (id) => {
   await supabase.from("friends").update({ status: "accepted" }).eq("id", id)
   loadRequests()
+  loadFriends()
 }
 
+// ---------------- ADD FRIEND ----------------
 window.addFriend = async () => {
   const email = prompt("Enter friend's email:")
   if (!email) return
 
-  const { data: profile } = await supabase
+  const { data: profile, error } = await supabase
     .from("profiles")
-    .select("id")
+    .select("id,username,email")
     .eq("email", email)
     .single()
 
-  if (!profile) return alert("User not found")
+  if (error || !profile) return alert("User not found")
 
   await supabase.from("friends").insert({
     requester_id: currentUser.id,
@@ -150,11 +191,13 @@ window.addFriend = async () => {
   alert("Friend request sent.")
 }
 
+// ---------------- DMS PLACEHOLDER ----------------
 function loadDMs() {
   document.getElementById("content").innerHTML =
     "<p>DM system coming next.</p>"
 }
 
+// ---------------- INITIAL CHECK ----------------
 checkSession()
 </script>
 
@@ -235,8 +278,9 @@ input {
 
 <div id="loginScreen">
   <div class="loginBox">
-    <h2>Login</h2>
+    <h2>Login / Create Account</h2>
     <input id="email" placeholder="Email">
+    <input id="username" placeholder="Username (for new accounts)">
     <input id="password" type="password" placeholder="Password">
     <button onclick="login()">Login</button>
     <button onclick="signup()">Sign Up</button>
