@@ -280,11 +280,12 @@ window.openDM = async (conversationId) => {
     </div>
   `
 
-  // Let the DOM fully render before loading messages
-  setTimeout(() => {
+  // Wait until the element actually exists in the DOM
+  requestAnimationFrame(() => {
     loadMessages(conversationId)
-  }, 0)
+  })
 }
+
 
 
 // ---------------- ADD USER TO GROUP ----------------
