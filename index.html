@@ -313,7 +313,7 @@ window.addToConversation = async (conversationId) => {
 
 async function loadMessages(conversationId) {
 
-  const { data } = await supabase
+  const { data: messages } = await supabase
     .from("messages")
     .select("*")
     .eq("conversation_id", conversationId)
@@ -322,20 +322,31 @@ async function loadMessages(conversationId) {
   const messagesDiv = document.getElementById("messages")
   messagesDiv.innerHTML = ""
 
-  for (let m of data || []) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", m.sender_id)
-      .single()
+  if (!messages || messages.length === 0) return
 
+  // Get unique sender IDs
+  const senderIds = [...new Set(messages.map(m => m.sender_id))]
+
+  // Fetch all usernames in ONE query
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, username")
+    .in("id", senderIds)
+
+  const usernameMap = {}
+  profiles?.forEach(p => {
+    usernameMap[p.id] = p.username
+  })
+
+  for (let m of messages) {
     messagesDiv.innerHTML += `
-      <div><strong>${profile?.username || "Unknown"}:</strong> ${m.content}</div>
+      <div><strong>${usernameMap[m.sender_id] || "Unknown"}:</strong> ${m.content}</div>
     `
   }
 
   messagesDiv.scrollTop = messagesDiv.scrollHeight
 }
+
 
 window.sendMessage = async (conversationId) => {
   const input = document.getElementById("messageInput")
