@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <title>Discord Clone</title>
+
+  <!-- Load Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <style>
     body {
       margin: 0;
@@ -44,7 +47,7 @@
     }
 
     #sidebar {
-      width: 250px;
+      width: 200px;
       background: #2f3136;
       padding: 10px;
     }
@@ -67,12 +70,6 @@
 
     #messageInput input {
       flex: 1;
-      padding: 10px;
-      border: none;
-    }
-
-    #messageInput button {
-      width: 100px;
     }
 
     .message {
@@ -92,7 +89,6 @@
 
 <div id="app">
   <div id="sidebar">
-    <h3>DM</h3>
     <button onclick="logout()">Logout</button>
   </div>
 
@@ -106,7 +102,8 @@
 </div>
 
 <script>
-  const supabaseClient = window.supabase.createClient(...)
+  // Create client without redeclaring global supabase
+  const sb = window.supabase.createClient(
     "https://mcofbchorvsseikgccek.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
   )
@@ -115,26 +112,17 @@
     const email = document.getElementById("email").value
     const password = document.getElementById("password").value
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password
-    })
+    const { error } = await sb.auth.signUp({ email, password })
 
-    if (error) {
-      alert(error.message)
-    } else {
-      alert("Check your email to confirm sign up.")
-    }
+    if (error) alert(error.message)
+    else alert("Check your email to confirm.")
   }
 
   async function login() {
     const email = document.getElementById("email").value
     const password = document.getElementById("password").value
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    })
+    const { error } = await sb.auth.signInWithPassword({ email, password })
 
     if (error) {
       alert(error.message)
@@ -146,18 +134,21 @@
   }
 
   async function logout() {
-    await supabase.auth.signOut()
+    await sb.auth.signOut()
     location.reload()
   }
 
   async function sendMessage() {
     const text = document.getElementById("messageText").value
-    const { data: { user } } = await supabase.auth.getUser()
-
     if (!text) return
 
-    await supabase.from("messages").insert([
-      { content: text, user_id: user.id }
+    const { data: { user } } = await sb.auth.getUser()
+
+    await sb.from("messages").insert([
+      {
+        content: text,
+        user_id: user.id
+      }
     ])
 
     document.getElementById("messageText").value = ""
@@ -165,7 +156,7 @@
   }
 
   async function loadMessages() {
-    const { data } = await supabase
+    const { data } = await sb
       .from("messages")
       .select("*")
       .order("created_at", { ascending: true })
