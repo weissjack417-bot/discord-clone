@@ -1,39 +1,145 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Discord Clone</title>
+<meta charset="UTF-8">
+<title>Discord Clone</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background-color: #36393f;
+  color: white;
+  display: flex;
+  height: 100vh;
+}
+
+#sidebar {
+  width: 260px;
+  background-color: #2f3136;
+  padding: 15px;
+  overflow-y: auto;
+}
+
+#sidebar h3 {
+  margin-top: 0;
+  color: #b9bbbe;
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+.friend-btn {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 5px;
+  background-color: #40444b;
+  border: none;
+  color: white;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.friend-btn:hover {
+  background-color: #5865f2;
+}
+
+#chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#chat-header {
+  padding: 15px;
+  background-color: #2f3136;
+  border-bottom: 1px solid #202225;
+}
+
+#messages {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+}
+
+.message {
+  margin-bottom: 10px;
+}
+
+.message span {
+  font-weight: bold;
+  margin-right: 5px;
+}
+
+#input-area {
+  padding: 15px;
+  background-color: #40444b;
+  display: flex;
+}
+
+#messageInput {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 5px;
+}
+
+#sendBtn {
+  margin-left: 10px;
+  padding: 10px 15px;
+  background-color: #5865f2;
+  border: none;
+  color: white;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+#sendBtn:hover {
+  background-color: #4752c4;
+}
+
+.logout {
+  position: absolute;
+  bottom: 15px;
+  left: 15px;
+  background-color: #ed4245;
+  border: none;
+  padding: 8px;
+  border-radius: 5px;
+  color: white;
+  cursor: pointer;
+}
+</style>
 </head>
+
 <body>
 
-<h2>Discord Clone</h2>
+<div id="sidebar">
+  <h3>Direct Messages</h3>
+  <div id="friendsList"></div>
+  <button class="logout" onclick="logout()">Logout</button>
+</div>
 
-<button onclick="logout()">Logout</button>
+<div id="chat">
+  <div id="chat-header">Select a DM</div>
+  <div id="messages"></div>
 
-<hr>
+  <div id="input-area">
+    <input id="messageInput" placeholder="Message..." />
+    <button id="sendBtn" onclick="sendMessage()">Send</button>
+  </div>
+</div>
 
-<h3>Friends</h3>
-<div id="friendsList"></div>
-
-<hr>
-
-<h3>Messages</h3>
-<div id="messages" style="border:1px solid black; height:200px; overflow:auto;"></div>
-
-<input id="messageInput" placeholder="Send message..." />
-<button onclick="sendMessage()">Send</button>
-
-<!-- SUPABASE -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const supabaseUrl = "https://mcofbchorvsseikgccek.supabase.co";
-const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig";
-
+const supabaseKey = "YOUR_ANON_KEY_HERE";
 const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
 let user = null;
 let currentConversationId = null;
-
-// ================== INIT ==================
+let currentFriendId = null;
 
 async function init() {
   const { data } = await supabase.auth.getUser();
@@ -46,17 +152,12 @@ async function init() {
 
   loadFriends();
 }
-
 init();
-
-// ================== LOGOUT ==================
 
 async function logout() {
   await supabase.auth.signOut();
   location.reload();
 }
-
-// ================== LOAD FRIENDS ==================
 
 async function loadFriends() {
   const { data: friends } = await supabase
@@ -74,17 +175,17 @@ async function loadFriends() {
       f.user1_id === user.id ? f.user2_id : f.user1_id;
 
     const btn = document.createElement("button");
+    btn.className = "friend-btn";
     btn.textContent = "Open DM";
     btn.onclick = () => openDM(friendId);
 
     container.appendChild(btn);
-    container.appendChild(document.createElement("br"));
   }
 }
 
-// ================== OPEN OR CREATE DM ==================
-
 async function openDM(friendId) {
+
+  currentFriendId = friendId;
 
   const { data: myConvos } = await supabase
     .from("conversation_participants")
@@ -95,7 +196,6 @@ async function openDM(friendId) {
 
   if (myConvos) {
     for (const convo of myConvos) {
-
       const { data: participants } = await supabase
         .from("conversation_participants")
         .select("user_id")
@@ -113,7 +213,6 @@ async function openDM(friendId) {
   }
 
   if (!foundConversation) {
-
     const { data: newConvo } = await supabase
       .from("conversations")
       .insert({})
@@ -128,18 +227,15 @@ async function openDM(friendId) {
     ]);
 
     currentConversationId = convoId;
-
   } else {
     currentConversationId = foundConversation;
   }
 
+  document.getElementById("chat-header").innerText = "Direct Message";
   loadMessages();
 }
 
-// ================== LOAD MESSAGES ==================
-
 async function loadMessages() {
-
   if (!currentConversationId) return;
 
   const { data: messages } = await supabase
@@ -155,21 +251,15 @@ async function loadMessages() {
 
   for (const m of messages) {
     const div = document.createElement("div");
-
-    div.textContent =
-      (m.user_id === user.id ? "You: " : "Them: ") +
-      m.content;
-
+    div.className = "message";
+    div.innerHTML = `<span>${m.user_id === user.id ? "You" : "Them"}:</span> ${m.content}`;
     box.appendChild(div);
   }
 
   box.scrollTop = box.scrollHeight;
 }
 
-// ================== SEND MESSAGE ==================
-
 async function sendMessage() {
-
   const input = document.getElementById("messageInput");
   const content = input.value.trim();
 
