@@ -23,7 +23,7 @@ body {
   display: block;
   margin: 10px auto;
   padding: 8px;
-  width: 200px;
+  width: 220px;
 }
 
 #app {
@@ -116,8 +116,8 @@ button {
 
 <div id="auth">
   <h2>Login / Sign Up</h2>
-  <input id="email" placeholder="Email">
-  <input id="password" type="password" placeholder="Password">
+  <input id="emailInput" placeholder="Email">
+  <input id="passwordInput" type="password" placeholder="Password">
   <button onclick="login()">Login</button>
   <button onclick="signup()">Sign Up</button>
 </div>
@@ -150,7 +150,7 @@ button {
 
 const supabaseUrl = "https://mcofbchorvsseikgccek.supabase.co";
 const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig";
-const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
 let user = null;
 let currentConversationId = null;
@@ -158,7 +158,7 @@ let currentConversationId = null;
 // ================= AUTH =================
 
 async function checkSession() {
-  const { data } = await supabase.auth.getSession();
+  const { data } = await supabaseClient.auth.getSession();
 
   if (data.session) {
     user = data.session.user;
@@ -180,28 +180,27 @@ function showAuth() {
 }
 
 async function login() {
-  const email = emailInput.value;
-  const password = passwordInput.value;
+  const email = document.getElementById("emailInput").value;
+  const password = document.getElementById("passwordInput").value;
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
   if (error) alert(error.message);
   else checkSession();
 }
 
 async function signup() {
-  const email = emailInput.value;
-  const password = passwordInput.value;
+  const email = document.getElementById("emailInput").value;
+  const password = document.getElementById("passwordInput").value;
 
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
 
   if (error) {
     alert(error.message);
     return;
   }
 
-  // create profile
-  await supabase.from("profiles").insert({
+  await supabaseClient.from("profiles").insert({
     id: data.user.id,
     email: email
   });
@@ -210,7 +209,7 @@ async function signup() {
 }
 
 async function logout() {
-  await supabase.auth.signOut();
+  await supabaseClient.auth.signOut();
   showAuth();
 }
 
@@ -220,7 +219,7 @@ async function addFriend() {
   const email = document.getElementById("friendEmail").value.trim();
   if (!email) return;
 
-  const { data: friend } = await supabase
+  const { data: friend } = await supabaseClient
     .from("profiles")
     .select("id")
     .eq("email", email)
@@ -236,7 +235,7 @@ async function addFriend() {
     return;
   }
 
-  await supabase.from("friends").insert({
+  await supabaseClient.from("friends").insert({
     user1_id: user.id,
     user2_id: friend.id
   });
@@ -246,7 +245,7 @@ async function addFriend() {
 }
 
 async function loadFriends() {
-  const { data: friends } = await supabase
+  const { data: friends } = await supabaseClient
     .from("friends")
     .select("*")
     .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`);
@@ -273,7 +272,7 @@ async function loadFriends() {
 
 async function openDM(friendId) {
 
-  const { data: myConvos } = await supabase
+  const { data: myConvos } = await supabaseClient
     .from("conversation_participants")
     .select("conversation_id")
     .eq("user_id", user.id);
@@ -282,7 +281,7 @@ async function openDM(friendId) {
 
   if (myConvos) {
     for (const convo of myConvos) {
-      const { data: participants } = await supabase
+      const { data: participants } = await supabaseClient
         .from("conversation_participants")
         .select("user_id")
         .eq("conversation_id", convo.conversation_id);
@@ -297,7 +296,7 @@ async function openDM(friendId) {
   }
 
   if (!foundConversation) {
-    const { data: newConvo } = await supabase
+    const { data: newConvo } = await supabaseClient
       .from("conversations")
       .insert({})
       .select()
@@ -305,7 +304,7 @@ async function openDM(friendId) {
 
     const convoId = newConvo.id;
 
-    await supabase.from("conversation_participants").insert([
+    await supabaseClient.from("conversation_participants").insert([
       { conversation_id: convoId, user_id: user.id },
       { conversation_id: convoId, user_id: friendId }
     ]);
@@ -321,7 +320,7 @@ async function openDM(friendId) {
 async function loadMessages() {
   if (!currentConversationId) return;
 
-  const { data: messages } = await supabase
+  const { data: messages } = await supabaseClient
     .from("messages")
     .select("*")
     .eq("conversation_id", currentConversationId)
@@ -341,16 +340,16 @@ async function loadMessages() {
 }
 
 async function sendMessage() {
-  const content = messageInput.value.trim();
+  const content = document.getElementById("messageInput").value.trim();
   if (!content || !currentConversationId) return;
 
-  await supabase.from("messages").insert({
+  await supabaseClient.from("messages").insert({
     conversation_id: currentConversationId,
     user_id: user.id,
     content: content
   });
 
-  messageInput.value = "";
+  document.getElementById("messageInput").value = "";
   loadMessages();
 }
 
