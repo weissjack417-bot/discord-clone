@@ -1,302 +1,228 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Discord Clone</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #313338;
-      color: white;
-    }
+<meta charset="UTF-8">
+<title>Discord Clone</title>
 
-    .hidden { display: none; }
+<style>
+* { box-sizing: border-box; }
 
-    /* LOGIN */
-    #loginScreen {
-      height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #313338;
+  color: white;
+  height: 100vh;
+}
 
-    .loginBox {
-      background: #2b2d31;
-      padding: 30px;
-      border-radius: 8px;
-      width: 320px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+/* LOGIN */
+#login-screen {
+  display: flex;
+  height: 100vh;
+  justify-content: center;
+  align-items: center;
+}
 
-    input {
-      padding: 10px;
-      border-radius: 4px;
-      border: none;
-    }
+.login-box {
+  background: #1e1f22;
+  padding: 30px;
+  border-radius: 8px;
+  width: 300px;
+}
 
-    button {
-      padding: 10px;
-      border-radius: 4px;
-      border: none;
-      cursor: pointer;
-      background: #5865f2;
-      color: white;
-    }
+.login-box input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: none;
+  border-radius: 5px;
+}
 
-    /* APP */
-    #app {
-      display: flex;
-      height: 100vh;
-    }
+.login-box button {
+  width: 100%;
+  padding: 10px;
+  background: #5865f2;
+  border: none;
+  color: white;
+  border-radius: 5px;
+  cursor: pointer;
+}
 
-    #sidebar {
-      width: 220px;
-      background: #2b2d31;
-      padding: 15px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+/* APP */
+#app-screen {
+  display: none;
+  height: 100vh;
+}
 
-    #content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
+.sidebar {
+  width: 240px;
+  background: #1e1f22;
+  padding: 10px;
+}
 
-    #topbar {
-      background: #232428;
-      padding: 15px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+.sidebar h3 {
+  margin-top: 0;
+}
 
-    #mainContent {
-      flex: 1;
-      padding: 20px;
-      overflow-y: auto;
-    }
+.friend {
+  padding: 8px;
+  background: #2b2d31;
+  border-radius: 5px;
+  margin-bottom: 5px;
+}
 
-    .card {
-      background: #404249;
-      padding: 12px;
-      border-radius: 6px;
-      margin-bottom: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+.main {
+  flex: 1;
+  background: #313338;
+  display: flex;
+  flex-direction: column;
+}
 
-    #chatArea {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
+.topbar {
+  background: #1e1f22;
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+}
 
-    #messages {
-      flex: 1;
-      overflow-y: auto;
-      margin-bottom: 10px;
-    }
-
-    .message {
-      margin-bottom: 8px;
-    }
-
-    #messageInput {
-      display: flex;
-      gap: 5px;
-    }
-  </style>
+.content {
+  flex: 1;
+  padding: 10px;
+}
+</style>
 </head>
+
 <body>
 
 <!-- LOGIN -->
-<div id="loginScreen">
-  <div class="loginBox">
+<div id="login-screen">
+  <div class="login-box">
     <h2>Login</h2>
-    <input id="emailInput" placeholder="Email">
-    <input id="passwordInput" type="password" placeholder="Password">
+    <input id="email" placeholder="Email">
+    <input id="password" type="password" placeholder="Password">
     <button onclick="login()">Login</button>
-    <button onclick="signUp()">Sign Up</button>
   </div>
 </div>
 
 <!-- APP -->
-<div id="app" class="hidden">
-
-  <div id="sidebar">
-    <button onclick="showFriends()">Friends</button>
-    <button onclick="showRequests()">Requests</button>
-    <button onclick="showDMs()">DMs</button>
-    <button onclick="logout()">Logout</button>
+<div id="app-screen">
+  <div class="sidebar">
+    <h3>Friends</h3>
+    <div id="friends-list">Loading...</div>
   </div>
 
-  <div id="content">
-    <div id="topbar">
-      <div id="sectionTitle">Friends</div>
-      <button id="newDmBtn" class="hidden" onclick="startNewDM()">+</button>
+  <div class="main">
+    <div class="topbar">
+      <div>Home</div>
+      <button onclick="logout()">Logout</button>
     </div>
-    <div id="mainContent"></div>
+    <div class="content">
+      Select a friend to DM (next step)
+    </div>
   </div>
-
 </div>
 
-<script>
-const supabaseUrl = "https://mcofbchorvsseikgccek.supabase.co";
-const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig";
-const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"
 
-let currentUser = null;
-let activeChat = null;
+const SUPABASE_URL = "https://mcofbchorvsseikgccek.supabase.co"
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jb2ZiY2hvcnZzc2Vpa2djY2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDg2NDksImV4cCI6MjA4NjQyNDY0OX0.aUzfF3LEDqTXOs3hozzWqP-3h1atbAwwFX-A32RExig"
 
-/* AUTH */
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-async function signUp() {
-  const email = document.getElementById("emailInput").value;
-  const password = document.getElementById("passwordInput").value;
+let currentUser = null
 
-  const { data, error } = await supabaseClient.auth.signUp({ email, password });
-  if (error) return alert(error.message);
+const loginScreen = document.getElementById("login-screen")
+const appScreen = document.getElementById("app-screen")
+const friendsList = document.getElementById("friends-list")
 
-  const user = data.user;
-  if (user) {
-    await supabaseClient.from("profiles").insert([
-      { id: user.id, email: user.email }
-    ]);
+// -------------------- AUTH CHECK --------------------
+async function init() {
+  const { data: { session } } = await supabase.auth.getSession()
+
+  if (session) {
+    currentUser = session.user
+    showApp()
+  } else {
+    showLogin()
   }
-
-  alert("Signup complete. Now login.");
 }
 
-async function login() {
-  const email = document.getElementById("emailInput").value;
-  const password = document.getElementById("passwordInput").value;
+function showLogin() {
+  loginScreen.style.display = "flex"
+  appScreen.style.display = "none"
+}
 
-  const { data, error } = await supabaseClient.auth.signInWithPassword({
+function showApp() {
+  loginScreen.style.display = "none"
+  appScreen.style.display = "flex"
+  loadFriends()
+}
+
+// -------------------- LOGIN --------------------
+window.login = async function () {
+  const email = document.getElementById("email").value
+  const password = document.getElementById("password").value
+
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password
-  });
+  })
 
-  if (error) return alert(error.message);
+  if (error) {
+    alert(error.message)
+    return
+  }
 
-  currentUser = data.user;
-
-  document.getElementById("loginScreen").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
-
-  showFriends();
+  currentUser = data.user
+  showApp()
 }
 
-async function logout() {
-  await supabaseClient.auth.signOut();
-  location.reload();
+// -------------------- LOGOUT --------------------
+window.logout = async function () {
+  await supabase.auth.signOut()
+  showLogin()
 }
 
-/* UI SECTION SWITCHING */
-
-function setTitle(text) {
-  document.getElementById("sectionTitle").innerText = text;
-}
-
-function showFriends() {
-  setTitle("Friends");
-  document.getElementById("newDmBtn").classList.add("hidden");
-  loadFriends();
-}
-
-function showRequests() {
-  setTitle("Friend Requests");
-  document.getElementById("newDmBtn").classList.add("hidden");
-  loadRequests();
-}
-
-function showDMs() {
-  setTitle("Direct Messages");
-  document.getElementById("newDmBtn").classList.remove("hidden");
-  loadDMList();
-}
-
-/* FRIENDS */
-
+// -------------------- FRIENDS --------------------
 async function loadFriends() {
-  const container = document.getElementById("mainContent");
-  container.innerHTML = "";
+  friendsList.innerHTML = "Loading..."
 
-  const { data } = await supabaseClient
+  const { data, error } = await supabase
     .from("friends")
     .select("*")
-    .or(`requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`)
-    .eq("status", "accepted");
+    .or(
+      `requester_id.eq.${currentUser.id},addressee_id.eq.${currentUser.id}`
+    )
+    .eq("status", "accepted")
 
-  for (let f of data || []) {
+  if (error) {
+    friendsList.innerHTML = "Error loading friends"
+    console.error(error)
+    return
+  }
+
+  if (!data.length) {
+    friendsList.innerHTML = "No friends yet"
+    return
+  }
+
+  friendsList.innerHTML = ""
+
+  data.forEach(row => {
     const friendId =
-      f.requester_id === currentUser.id ? f.addressee_id : f.requester_id;
+      row.requester_id === currentUser.id
+        ? row.addressee_id
+        : row.requester_id
 
-    const { data: profile } = await supabaseClient
-      .from("profiles")
-      .select("email")
-      .eq("id", friendId)
-      .single();
-
-    const div = document.createElement("div");
-    div.className = "card";
-    div.innerText = profile.email;
-    container.appendChild(div);
-  }
+    const div = document.createElement("div")
+    div.className = "friend"
+    div.textContent = friendId
+    friendsList.appendChild(div)
+  })
 }
 
-/* REQUESTS */
-
-async function loadRequests() {
-  const container = document.getElementById("mainContent");
-  container.innerHTML = "";
-
-  const { data } = await supabaseClient
-    .from("friends")
-    .select("*")
-    .eq("addressee_id", currentUser.id)
-    .eq("status", "pending");
-
-  for (let req of data || []) {
-    const { data: profile } = await supabaseClient
-      .from("profiles")
-      .select("email")
-      .eq("id", req.requester_id)
-      .single();
-
-    const div = document.createElement("div");
-    div.className = "card";
-    div.innerHTML = `
-      ${profile.email}
-      <button onclick="acceptRequest('${req.id}')">Accept</button>
-    `;
-    container.appendChild(div);
-  }
-}
-
-async function acceptRequest(id) {
-  await supabaseClient
-    .from("friends")
-    .update({ status: "accepted" })
-    .eq("id", id);
-  showRequests();
-}
-
-/* DMS */
-
-function loadDMList() {
-  document.getElementById("mainContent").innerHTML =
-    "Click + to start a DM (coming next step)";
-}
-
-function startNewDM() {
-  showFriends();
-}
+init()
 </script>
 
 </body>
