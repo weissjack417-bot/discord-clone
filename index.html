@@ -1,9 +1,3 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>Chat App</title>
-
 <script type="module">
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"
 
@@ -15,7 +9,6 @@ const supabase = createClient(
 let currentUser = null
 let activeTab = "friends"
 let messageChannel = null
-let currentConversationId = null
 
 // ---------------- AUTH ----------------
 
@@ -25,6 +18,7 @@ window.login = async () => {
     password: passwordInput.value.trim()
   })
   if (error) return alert(error.message)
+
   currentUser = data.user
   showApp()
 }
@@ -33,6 +27,7 @@ window.signup = async () => {
   const email = emailInput.value.trim()
   const password = passwordInput.value.trim()
   const username = usernameInput.value.trim()
+
   if (!username) return alert("Username required")
 
   const { data, error } = await supabase.auth.signUp({ email, password })
@@ -87,198 +82,111 @@ async function loadTab() {
   if (activeTab === "dms") loadDMList()
 }
 
-// ---------------- DMs ----------------
-
-window.openDM = async (conversationId) => {
-
-  currentConversationId = conversationId
-
-  content.innerHTML = `
-    <div class="chatContainer">
-      <div id="messages" class="messages"></div>
-      <div class="chatBottom">
-        <input id="messageInput" placeholder="Type message...">
-        <button id="sendBtn">Send</button>
-      </div>
-    </div>
-  `
-
-  const input = document.getElementById("messageInput")
-  const button = document.getElementById("sendBtn")
-
-  button.addEventListener("click", sendMessage)
-
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault()
-      sendMessage()
-    }
-  })
-
-  await loadMessages()
-  subscribeToMessages()
-}
-
-
-// ---------------- ENTER SEND ----------------
-
-function setupEnterKey() {
-  const input = document.getElementById("messageInput")
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault()
-      sendMessage()
-    }
-  })
-}
-
 // ---------------- REALTIME ----------------
 
-function subscribeToMessages() {
+function subscribeToMessages(conversationId) {
 
   if (messageChannel) {
     supabase.removeChannel(messageChannel)
   }
 
   messageChannel = supabase
-    .channel("messages-" + currentConversationId)
+    .channel("messages-" + conversationId)
     .on(
       "postgres_changes",
       {
         event: "INSERT",
         schema: "public",
         table: "messages",
-        filter: `conversation_id=eq.${currentConversationId}`
+        filter: `conversation_id=eq.${conversationId}`
       },
-      async (payload) => {
-        appendMessage(payload.new)
+      () => {
+        loadMessages(conversationId)
       }
     )
     .subscribe()
 }
 
-// ---------------- LOAD ----------------
+// ---------------- OPEN DM ----------------
 
-async function loadMessages() {
+window.openDM = async (conversationId) => {
+
+  content.innerHTML = `
+    <div class="chatContainer">
+      <div id="messages" class="messages"></div>
+
+      <div class="chatBottom">
+        <button onclick="addToConversation('${conversationId}')">+</button>
+        <input id="messageInput" placeholder="Type message...">
+        <button onclick="sendMessage('${conversationId}')">Send</button>
+      </div>
+    </div>
+  `
+
+  setupEnter(conversationId)
+  loadMessages(conversationId)
+  subscribeToMessages(conversationId)
+}
+
+function setupEnter(conversationId) {
+  const input = document.getElementById("messageInput")
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      sendMessage(conversationId)
+    }
+  })
+}
+
+// ---------------- LOAD MESSAGES ----------------
+
+async function loadMessages(conversationId) {
 
   const { data } = await supabase
     .from("messages")
     .select("*")
-    .eq("conversation_id", currentConversationId)
+    .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true })
 
   const messagesDiv = document.getElementById("messages")
   messagesDiv.innerHTML = ""
 
   for (let m of data || []) {
-    appendMessage(m, false)
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", m.sender_id)
+      .single()
+
+    messagesDiv.innerHTML += `
+      <div><strong>${profile?.username || "Unknown"}:</strong> ${m.content}</div>
+    `
   }
 
   messagesDiv.scrollTop = messagesDiv.scrollHeight
 }
 
-// ---------------- APPEND ----------------
-
-async function appendMessage(message, scroll = true) {
-
-  const messagesDiv = document.getElementById("messages")
-  if (!messagesDiv) return
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("username")
-    .eq("id", message.sender_id)
-    .single()
-
-  const div = document.createElement("div")
-  div.innerHTML = `<strong>${profile?.username || "Unknown"}:</strong> ${message.content}`
-  messagesDiv.appendChild(div)
-
-  if (scroll) {
-    messagesDiv.scrollTop = messagesDiv.scrollHeight
-  }
-}
-
 // ---------------- SEND ----------------
 
-window.sendMessage = async () => {
-
+window.sendMessage = async (conversationId) => {
   const input = document.getElementById("messageInput")
   const text = input.value.trim()
   if (!text) return
 
-  await supabase.from("messages").insert({
-    conversation_id: currentConversationId,
+  const { error } = await supabase.from("messages").insert({
+    conversation_id: conversationId,
     sender_id: currentUser.id,
     content: text
   })
+
+  if (error) {
+    console.error(error)
+    alert("Message failed to send.")
+    return
+  }
 
   input.value = ""
 }
 
 checkSession()
 </script>
-
-<style>
-body { margin:0; font-family:Arial; background:#313338; color:white; }
-button { background:#5865F2; border:none; padding:8px 12px; border-radius:5px; color:white; cursor:pointer; }
-button:hover { opacity:0.85 }
-
-#loginScreen { display:none; height:100vh; justify-content:center; align-items:center; }
-.loginBox { background:#1e1f22; padding:30px; border-radius:8px; display:flex; flex-direction:column; gap:10px; width:300px; }
-input { padding:8px; border-radius:4px; border:none; }
-
-#appScreen { display:none; height:100vh; }
-.sidebar { width:220px; background:#1e1f22; padding:15px; }
-.sidebar button { width:100%; margin-bottom:10px; }
-
-.main { flex:1; padding:20px; display:flex; }
-
-.chatContainer {
-  display:flex;
-  flex-direction:column;
-  height:100%;
-  width:100%;
-}
-
-.messages {
-  flex:1;
-  overflow-y:auto;
-  margin-bottom:10px;
-}
-
-.chatBottom {
-  display:flex;
-  gap:10px;
-}
-.chatBottom input {
-  flex:1;
-}
-</style>
-</head>
-
-<body>
-
-<div id="loginScreen">
-  <div class="loginBox">
-    <h2>Login / Sign Up</h2>
-    <input id="emailInput" placeholder="Email">
-    <input id="passwordInput" type="password" placeholder="Password">
-    <input id="usernameInput" placeholder="Username (signup only)">
-    <button onclick="login()">Login</button>
-    <button onclick="signup()">Sign Up</button>
-  </div>
-</div>
-
-<div id="appScreen" style="display:flex;">
-  <div class="sidebar">
-    <button onclick="switchTab('dms')">DMs</button>
-    <button onclick="logout()">Logout</button>
-  </div>
-  <div class="main">
-    <div id="content" style="width:100%;"></div>
-  </div>
-</div>
-
-</body>
-</html>
